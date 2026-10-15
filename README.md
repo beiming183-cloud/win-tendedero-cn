@@ -1,6 +1,6 @@
 # win-tendedero
 
-简体中文的 Windows 晾截图工具：把截图挂在屏幕顶部，方便复制、拖放、标注和临时收纳。
+win-tendedero 是一款独立维护的 Windows 截图暂存与整理应用。把截图挂在屏幕顶部，随手复制、拖放、标注，用完再收起。
 
 **[下载 Windows x64 便携版](https://github.com/beiming183-cloud/win-tendedero-cn/releases/latest)**
 

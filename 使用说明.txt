@@ -1,4 +1,4 @@
-win-tendedero · Windows 简体中文版
+win-tendedero · Windows 截图暂存与整理
 
 解压整个文件夹，双击 win-tendedero.exe。
 程序位于任务栏通知区域，右键图标打开“设置”或“退出 win-tendedero”。
