@@ -1,6 +1,6 @@
 # win-tendedero
 
-win-tendedero 是一款独立维护的 Windows 截图暂存与整理应用。把截图挂在屏幕顶部，随手复制、拖放、标注，用完再收起。
+win-tendedero 是一款参考 [Tendedero](https://github.com/alejandrobujan/tendedero) 和 [Snapline](https://github.com/mohabujubara/snapline) 开发的 Windows 截图暂存与整理应用。把截图挂在屏幕顶部，随手复制、拖放、标注，用完再收起。
 
 **[下载 Windows x64 便携版](https://github.com/beiming183-cloud/win-tendedero-cn/releases/latest)**
 
