@@ -22,7 +22,8 @@ public sealed class AppController : IDisposable
     private readonly TrayIcon _tray;
     private readonly List<ScreenshotWatcher> _watchers = new();
     private readonly ClipboardWatcher _clipboard;
-    private HotKey? _hotKey;
+    private readonly ShortcutBinding _shortcut;
+    private string? _requestedShortcut;
     private readonly DispatcherTimer _mouseTimer;
     private readonly DispatcherTimer _themeTimer;
 
@@ -34,7 +35,7 @@ public sealed class AppController : IDisposable
     private bool _pinned;
     /// <summary>A new screenshot shows itself for a moment, then tucks away.</summary>
     private DateTime _peekUntil = DateTime.MinValue;
-    private DateTime? _hotZoneSince;
+    private readonly EdgeActivation _edgeActivation = new();
     private DateTime? _awaySince;
     /// <summary>Whether the line should be up, if nothing prevents it. A full screen app on that screen does.</summary>
     private bool _wanted;
@@ -49,7 +50,6 @@ public sealed class AppController : IDisposable
     private static readonly TimeSpan RetractDelay = TimeSpan.FromSeconds(0.5);
     /// <summary>A click near the top edge means work in the window there, not a wish for the line. Stays set until the pointer leaves the edge.</summary>
     private bool _edgeSuppressed;
-    private POINT _restingAt;
     private bool _buttonWasDown;
 
     public AppController()
@@ -78,6 +78,7 @@ public sealed class AppController : IDisposable
         };
         _clipboard.Start();
         StartWatchers();
+        _shortcut = new ShortcutBinding(_messages, Toggle);
         RegisterHotKey();
 
         _line.Fall += Fall;
@@ -103,6 +104,7 @@ public sealed class AppController : IDisposable
             _wanted = true;
             Refresh();
         }
+        else if (Settings.Current.RevealAtTopEdge) _mouseTimer.Start();
 
         if (!Settings.Current.Welcomed)
         {
@@ -134,9 +136,17 @@ public sealed class AppController : IDisposable
 
     private void RegisterHotKey()
     {
-        _hotKey?.Dispose();
-        _hotKey = new HotKey(_messages, Settings.Current.HotKey, Toggle);
-        if (!_hotKey.Registered) Log.Error($"Could not register the shortcut {Settings.Current.HotKey}");
+        _requestedShortcut = Settings.Current.HotKey;
+        if (!_shortcut.TrySet(Settings.Current.HotKey)) Log.Error($"Could not register the shortcut {Settings.Current.HotKey}");
+    }
+
+    public bool TrySetShortcut(string text)
+    {
+        if (!_shortcut.TrySet(text)) return false;
+        Settings.Current.HotKey = _shortcut.Text!;
+        _requestedShortcut = _shortcut.Text;
+        Settings.Current.Save();
+        return true;
     }
 
     private bool RecentlyHungFromFile(int w, int h)
@@ -243,7 +253,7 @@ public sealed class AppController : IDisposable
         bool blocked = FullScreen.IsActive(monitor);
         if (_wanted && !blocked) Present(); else Dismiss();
         // The pointer is watched while there is a line, even tucked away, to notice it pushing against the top edge.
-        if (_wanted) _mouseTimer.Start(); else StopMouseTracking();
+        if (_wanted || Settings.Current.RevealAtTopEdge) _mouseTimer.Start(); else StopMouseTracking();
     }
 
     private void Present()
@@ -311,6 +321,7 @@ public sealed class AppController : IDisposable
     private void StopMouseTracking()
     {
         _mouseTimer.Stop();
+        _edgeActivation.Reset();
         _panel.Canvas.UpdateHover(null);
     }
 
@@ -329,6 +340,7 @@ public sealed class AppController : IDisposable
 
         if (_isPresent && _panel.Display is { } current && FullScreen.IsActive(current))
         {
+            _edgeActivation.Reset();
             Dismiss();
             return;
         }
@@ -337,35 +349,22 @@ public sealed class AppController : IDisposable
         if (!_isRevealed)
         {
             _panel.ClickThrough = true;
-            // The top edge is where every maximised window keeps its tabs, so the
-            // line only comes down when the pointer rests there, still, with no
-            // button pressed. A click up there says you are working, not asking.
+            // Clicks and drags in the band still belong to the application underneath.
             if (buttonDown && inHotBand) _edgeSuppressed = true;
-            bool resting = Settings.Current.RevealAtTopEdge && displayUnderPointer is not null && inHotBand && !buttonDown
+            bool eligible = Settings.Current.RevealAtTopEdge && displayUnderPointer is not null && inHotBand && !buttonDown
                            && !_edgeSuppressed && !FullScreen.IsActive(displayUnderPointer);
-            if (resting)
+            if (_edgeActivation.Update(eligible, displayUnderPointer?.Handle ?? IntPtr.Zero,
+                    System.Diagnostics.Stopwatch.GetElapsedTime(0), Settings.Current.RevealDelay))
             {
-                if (_hotZoneSince is null || Math.Abs(mouse.X - _restingAt.X) > 6 || Math.Abs(mouse.Y - _restingAt.Y) > 6)
+                _edgeActivation.Reset();
+                if (_panel.Display is null || !_panel.Display.Equals(displayUnderPointer))
                 {
-                    _hotZoneSince = now;
-                    _restingAt = mouse;
+                    _panel.PlaceOn(displayUnderPointer);
+                    UpdateCapacity();
                 }
-                if (now - _hotZoneSince.Value >= TimeSpan.FromSeconds(Math.Clamp(Settings.Current.RevealDelay, 0.15, 3)))
-                {
-                    _hotZoneSince = null;
-                    if (_panel.Display is null || !_panel.Display.Equals(displayUnderPointer))
-                    {
-                        _panel.PlaceOn(displayUnderPointer);
-                        UpdateCapacity();
-                    }
-                    _wanted = true;
-                    Refresh();
-                    Reveal();
-                }
-            }
-            else
-            {
-                _hotZoneSince = null;
+                _wanted = true;
+                Refresh();
+                Reveal();
             }
             return;
         }
@@ -444,7 +443,9 @@ public sealed class AppController : IDisposable
         Pegs.RaiseLookChanged();
         _tray.Repaint();
         if (_panel.Display is { } d) _panel.PlaceOn(d);
-        if (_hotKey is null || _hotKey.Text != Settings.Current.HotKey) RegisterHotKey();
+        if (_requestedShortcut != Settings.Current.HotKey) RegisterHotKey();
+        _edgeActivation.Reset();
+        Refresh();
         _clipboard.Enabled = Settings.Current.CatchClipboard;
         var wanted = new List<string> { Shell.ScreenshotsFolder(), Inbox.Folder };
         wanted.AddRange(Settings.Current.WatchFolders.Select(Environment.ExpandEnvironmentVariables));
@@ -515,7 +516,7 @@ public sealed class AppController : IDisposable
         login.IsChecked = Shell.StartsWithWindows;
         menu.Items.Add(login);
         menu.Items.Add(new Separator());
-        menu.Items.Add(PeggedControl.MenuItemFor(Strings.Settings, () => SettingsWindow.Open(ApplySettings)));
+        menu.Items.Add(PeggedControl.MenuItemFor(Strings.Settings, () => SettingsWindow.Open(ApplySettings, TrySetShortcut, () => _shortcut.Registered)));
         menu.Items.Add(PeggedControl.MenuItemFor(Strings.About, ShowAbout));
         menu.Items.Add(PeggedControl.MenuItemFor(Strings.Quit, () => Application.Current.Shutdown()));
         return menu;
@@ -545,7 +546,7 @@ public sealed class AppController : IDisposable
         _themeTimer.Stop();
         foreach (var w in _watchers) w.Dispose();
         _clipboard.Dispose();
-        _hotKey?.Dispose();
+        _shortcut.Dispose();
         _tray.Dispose();
         _messages.Dispose();
     }

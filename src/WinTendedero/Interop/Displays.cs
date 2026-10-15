@@ -18,16 +18,14 @@ public sealed class Display : IEquatable<Display>
     }
 
     /// <summary>
-    /// The strip the pointer rests in to bring the line down. With the taskbar at
-    /// the top of this screen that is the taskbar itself, like the macOS menu bar.
-    /// Otherwise it is the top edge: pushing the pointer against it.
+    /// The configurable top activation strip, scaled into this display's physical pixels.
     /// </summary>
     public RECT HotBand
     {
         get
         {
-            if (Work.Top > Bounds.Top) return new RECT(Bounds.Left, Bounds.Top, Bounds.Right, Work.Top);
-            return new RECT(Bounds.Left, Bounds.Top, Bounds.Right, Bounds.Top + 2);
+            int height = Core.EdgeActivation.PhysicalBand(Core.Settings.Current.RevealBand, Scale);
+            return new RECT(Bounds.Left, Bounds.Top, Bounds.Right, Math.Min(Bounds.Bottom, Bounds.Top + height));
         }
     }
 

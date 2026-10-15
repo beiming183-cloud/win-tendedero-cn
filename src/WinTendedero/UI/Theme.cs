@@ -73,6 +73,7 @@ public static class Theme
         res["MenuBorder"] = Freeze(new SolidColorBrush(dark ? Gray(1, 0.09) : Gray(0, 0.10)));
         res["MenuFg"] = Freeze(new SolidColorBrush(dark ? Gray(0.96) : Gray(0.11)));
         res["MenuFgSecondary"] = Freeze(new SolidColorBrush(dark ? Gray(0.68) : Gray(0.45)));
+        res["SettingsErrorFg"] = Freeze(new SolidColorBrush(dark ? Color.FromRgb(0xFF, 0xB4, 0xA9) : Color.FromRgb(0xA4, 0x26, 0x2C)));
         res["MenuHover"] = Freeze(new SolidColorBrush(dark ? Gray(1, 0.07) : Gray(0, 0.05)));
         res["MenuSeparator"] = Freeze(new SolidColorBrush(dark ? Gray(1, 0.09) : Gray(0, 0.08)));
     }

@@ -57,7 +57,7 @@ public static partial class Strings
     public static string TakeDownAfterDrag => L("Take down after dragging into an app");
     public static string TakeDownAfterDragTip => L("A photo dropped into a chat or an app leaves the line, like one saved to a folder");
     public static string RevealAtTopEdge => L("Bring the line down when the pointer rests at the top edge");
-    public static string RevealAtTopEdgeTip => L("Hold the pointer still against the top of the screen for half a second. Off, the shortcut and the tray icon show the line.");
+    public static string RevealAtTopEdgeTip => EdgeActivationHelp;
     public static string OpenScreenshotsFolder => L("Open Screenshots folder");
     public static string OpenInboxFolder => L("Open caught captures folder");
     public static string Sounds => L("Sounds");

@@ -8,8 +8,9 @@ namespace WinTendedero.Core;
 /// <summary>Everything the app remembers, in one small JSON file.</summary>
 public sealed class Settings
 {
-    public static string Folder { get; } = Migrate(Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "win-tendedero"));
+    public static string Folder { get; } = Environment.GetEnvironmentVariable("WIN_TENDEDERO_DATA_DIR") is { Length: > 0 } explicitFolder
+        ? Path.GetFullPath(explicitFolder)
+        : Migrate(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "win-tendedero"));
 
     /// <summary>Import an earlier installation once, keeping the old data intact.</summary>
     private static string Migrate(string folder)
@@ -76,10 +77,12 @@ public sealed class Settings
     public bool StayDownWhileUnused { get; set; }
     /// <summary>A photo dragged into an app leaves the line, as if it had been dropped into a folder.</summary>
     public bool TakeDownAfterDrag { get; set; }
-    /// <summary>Bring the line down when the pointer rests still at the top edge of the screen.</summary>
+    /// <summary>Bring the line down while the pointer is in the top activation band.</summary>
     public bool RevealAtTopEdge { get; set; } = true;
     /// <summary>How long the pointer rests at the edge before the line comes down, in seconds.</summary>
-    public double RevealDelay { get; set; } = 0.5;
+    public double RevealDelay { get; set; } = 0.2;
+    /// <summary>Height of the top activation band in device independent pixels.</summary>
+    public double RevealBand { get; set; } = 8;
     /// <summary>How far below the top of the work area the line hangs, in device independent pixels.</summary>
     public double LineOffset { get; set; }
     /// <summary>A preset name like "bronze", or a hex colour like "#8C5A2E".</summary>
@@ -112,10 +115,17 @@ public sealed class Settings
         {
             if (File.Exists(FilePath))
             {
-                var loaded = JsonSerializer.Deserialize<Settings>(File.ReadAllText(FilePath), Options) ?? new Settings();
+                var json = File.ReadAllText(FilePath);
+                var loaded = JsonSerializer.Deserialize<Settings>(json, Options) ?? new Settings();
+                using var document = JsonDocument.Parse(json);
+                bool legacyActivation = !document.RootElement.EnumerateObject().Any(p => p.Name.Equals("revealBand", StringComparison.OrdinalIgnoreCase));
+                if (legacyActivation && Math.Abs(loaded.RevealDelay - 0.5) < 0.0001) loaded.RevealDelay = 0.2;
+                loaded.RevealDelay = EdgeActivation.Delay(loaded.RevealDelay);
+                loaded.RevealBand = EdgeActivation.Band(loaded.RevealBand);
                 // Paths are matched regardless of case; the deserializer forgets that.
                 loaded.Spots = new Dictionary<string, double>(loaded.Spots, StringComparer.OrdinalIgnoreCase);
                 loaded.Notes = new Dictionary<string, NoteData>(loaded.Notes, StringComparer.OrdinalIgnoreCase);
+                if (legacyActivation) loaded.Save();
                 return loaded;
             }
         }

@@ -115,7 +115,7 @@ public static partial class Strings
         ["Pink"] = "粉色",
         ["Purple"] = "紫色",
         ["Wooden"] = "木质夹",
-        ["Aluminium"] = "金属夹（原版风格）",
+        ["Aluminium"] = "金属夹",
         ["Coloured plastic, mixed"] = "混色塑料夹",
         ["Red plastic"] = "红色塑料夹",
         ["Blue plastic"] = "蓝色塑料夹",

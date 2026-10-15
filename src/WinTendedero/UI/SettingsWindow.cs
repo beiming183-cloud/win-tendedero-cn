@@ -4,6 +4,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Shapes;
+using System.Windows.Automation;
 using WinTendedero.Core;
 using WinTendedero.Interop;
 
@@ -14,16 +15,22 @@ public sealed class SettingsWindow : Window
 {
     private static SettingsWindow? _open;
     private readonly Action _apply;
+    private readonly Func<string, bool>? _tryShortcut;
+    private readonly Func<bool>? _shortcutRegistered;
     private TextBox _hotKey = null!;
+    private TextBlock _shortcutStatus = null!;
+    private Button _shortcutButton = null!;
+    private bool _recordingShortcut;
+    private ShortcutRecorder? _recorder;
     private ListBox _folders = null!;
     private TextBlock _inbox = null!;
     private TextBox _offset = null!;
     private bool _building;
 
-    public static void Open(Action apply)
+    public static void Open(Action apply, Func<string, bool>? tryShortcut = null, Func<bool>? shortcutRegistered = null)
     {
         if (_open is not null) { _open.Activate(); return; }
-        _open = new SettingsWindow(apply);
+        _open = new SettingsWindow(apply, tryShortcut, shortcutRegistered);
         _open.Closed += (_, _) => _open = null;
         _open.Show();
     }
@@ -33,30 +40,36 @@ public sealed class SettingsWindow : Window
     {
         if (_open is null) return;
         var apply = _open._apply;
+        var tryShortcut = _open._tryShortcut;
+        var shortcutRegistered = _open._shortcutRegistered;
         var left = _open.Left; var top = _open.Top;
         _open.Close();
-        Open(apply);
+        Open(apply, tryShortcut, shortcutRegistered);
         if (_open is not null) { _open.Left = left; _open.Top = top; }
     }
 
     /// <summary>The settings page as a plain element, for the film.</summary>
-    public static FrameworkElement ForDemo(Action apply)
+    public static FrameworkElement ForDemo(Action apply, Func<string, bool>? tryShortcut = null, Func<bool>? shortcutRegistered = null)
     {
-        var w = new SettingsWindow(apply);
+        var w = new SettingsWindow(apply, tryShortcut, shortcutRegistered);
         var content = (FrameworkElement)w.Content;
         w.Content = null;
         if (content is ScrollViewer sv) { sv.VerticalScrollBarVisibility = ScrollBarVisibility.Disabled; sv.MaxHeight = double.PositiveInfinity; }
-        var border = new Border { Width = 500, Background = w.Background, Child = content };
+        var border = new Border { Width = 600, Background = w.Background, Child = content };
         System.Windows.Documents.TextElement.SetForeground(border, w.Foreground);
         return border;
     }
 
-    private SettingsWindow(Action apply)
+    private SettingsWindow(Action apply, Func<string, bool>? tryShortcut, Func<bool>? shortcutRegistered)
     {
         _apply = apply;
+        _tryShortcut = tryShortcut;
+        _shortcutRegistered = shortcutRegistered;
         Title = $"{Strings.AppName} · {Strings.SettingsTitle}";
-        Width = 500; SizeToContent = SizeToContent.Height;
-        ResizeMode = ResizeMode.NoResize;
+        Width = Math.Min(600, SystemParameters.WorkArea.Width - 40);
+        MinWidth = Math.Min(520, Width);
+        SizeToContent = SizeToContent.Height;
+        ResizeMode = ResizeMode.CanResize;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
         ShowInTaskbar = true;
         Icon = Brand.Icon;
@@ -66,7 +79,8 @@ public sealed class SettingsWindow : Window
         UseLayoutRounding = true;
         Paint();
         Theme.Changed += Paint;
-        Closed += (_, _) => Theme.Changed -= Paint;
+        Closed += (_, _) => { Theme.Changed -= Paint; _recorder?.Dispose(); };
+        Deactivated += (_, _) => { if (_recordingShortcut) EndShortcutCapture(); };
         Content = Build();
     }
 
@@ -85,15 +99,41 @@ public sealed class SettingsWindow : Window
         header.Margin = new Thickness(0, 0, 0, 6);
         stack.Children.Add(header);
 
-        // The line
+        stack.Children.Add(Heading(Strings.SectionActivation));
+        var activationControls = new StackPanel { Margin = new Thickness(0, 8, 0, 4), IsEnabled = s.RevealAtTopEdge };
+        stack.Children.Add(Check(Strings.RevealAtTopEdge, Strings.RevealAtTopEdgeTip, s.RevealAtTopEdge, v => { s.RevealAtTopEdge = v; activationControls.IsEnabled = v; }));
+        activationControls.Children.Add(ActivationSlider(Strings.RevealDelayLabel, Strings.RevealDelayHelp, "RevealDelay", 0, 1500, 50, EdgeActivation.Delay(s.RevealDelay) * 1000, Strings.DelayValue, v => s.RevealDelay = v / 1000));
+        activationControls.Children.Add(ActivationSlider(Strings.RevealBandLabel, Strings.RevealBandHelp, "RevealBand", 2, 24, 1, EdgeActivation.Band(s.RevealBand), Strings.BandValue, v => s.RevealBand = v));
+        stack.Children.Add(activationControls);
+
+        stack.Children.Add(Heading(Strings.SectionShortcut));
+        var shortcutControls = new DockPanel { LastChildFill = true, Margin = new Thickness(0, 6, 0, 0) };
+        _hotKey = new TextBox { Text = s.HotKey, IsReadOnly = true, IsTabStop = false, Padding = new Thickness(8, 5, 8, 5), VerticalContentAlignment = VerticalAlignment.Center, FlowDirection = FlowDirection.LeftToRight };
+        _hotKey.SetResourceReference(Control.ForegroundProperty, "MenuFg");
+        _hotKey.SetResourceReference(Control.BackgroundProperty, "MenuBg");
+        _hotKey.SetResourceReference(Control.BorderBrushProperty, "MenuBorder");
+        AutomationProperties.SetAutomationId(_hotKey, "ShortcutInput");
+        AutomationProperties.SetName(_hotKey, Strings.SectionShortcut);
+        _hotKey.PreviewKeyDown += OnHotKeyPressed;
+        _hotKey.PreviewMouseLeftButtonDown += (_, _) => { if (!_recordingShortcut) BeginShortcutCapture(); };
+        _hotKey.LostKeyboardFocus += (_, e) => { if (_recordingShortcut && !ReferenceEquals(e.NewFocus, _shortcutButton)) EndShortcutCapture(); };
+        _shortcutButton = new Button { Content = Strings.ChangeShortcut, MinWidth = 64, Padding = new Thickness(10, 5, 10, 5), Margin = new Thickness(8, 0, 0, 0) };
+        AutomationProperties.SetAutomationId(_shortcutButton, "ChangeShortcut");
+        _shortcutButton.Click += (_, _) => { if (_recordingShortcut) EndShortcutCapture(); else BeginShortcutCapture(); };
+        DockPanel.SetDock(_shortcutButton, Dock.Right);
+        shortcutControls.Children.Add(_shortcutButton);
+        shortcutControls.Children.Add(_hotKey);
+        stack.Children.Add(new TextBlock { Text = Strings.Shortcut, TextWrapping = TextWrapping.Wrap });
+        stack.Children.Add(shortcutControls);
+        _shortcutStatus = new TextBlock { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 0, 8), FontSize = 12 };
+        AutomationProperties.SetAutomationId(_shortcutStatus, "ShortcutStatus");
+        AutomationProperties.SetLiveSetting(_shortcutStatus, AutomationLiveSetting.Polite);
+        stack.Children.Add(_shortcutStatus);
+        RefreshShortcutStatus();
+
         stack.Children.Add(Heading(Strings.SectionLine));
-        stack.Children.Add(Check(Strings.RevealAtTopEdge, Strings.RevealAtTopEdgeTip, s.RevealAtTopEdge, v => s.RevealAtTopEdge = v));
         stack.Children.Add(Check(Strings.StayDownWhileUnused, Strings.StayDownWhileUnusedTip, s.StayDownWhileUnused, v => s.StayDownWhileUnused = v));
         stack.Children.Add(Check(Strings.TakeDownAfterDrag, Strings.TakeDownAfterDragTip, s.TakeDownAfterDrag, v => s.TakeDownAfterDrag = v));
-
-        _hotKey = new TextBox { Text = s.HotKey, IsReadOnly = true, Width = 170, Padding = new Thickness(8, 4, 8, 4), ToolTip = Strings.ShortcutTip, HorizontalAlignment = HorizontalAlignment.Left };
-        _hotKey.PreviewKeyDown += OnHotKeyPressed;
-        stack.Children.Add(Row(Strings.Shortcut, _hotKey));
 
         _offset = new TextBox { Text = ((int)s.LineOffset).ToString(), Width = 70, Padding = new Thickness(8, 4, 8, 4), ToolTip = Strings.LineDistanceTip, HorizontalAlignment = HorizontalAlignment.Left };
         _offset.LostFocus += (_, _) => { if (double.TryParse(_offset.Text, out var v)) { s.LineOffset = Math.Max(0, v); Changed(); } };
@@ -202,13 +242,13 @@ public sealed class SettingsWindow : Window
 
     private TextBlock Heading(string text) => new()
     {
-        Text = text, FontWeight = FontWeights.SemiBold, FontSize = 14, Margin = new Thickness(0, 12, 0, 6),
+        Text = text, FontWeight = FontWeights.SemiBold, FontSize = 14, Margin = new Thickness(0, 20, 0, 8),
     };
 
     private static DockPanel Row(string label, UIElement control, string? tip = null)
     {
         var row = new DockPanel { Margin = new Thickness(0, 6, 0, 2), LastChildFill = false };
-        var text = new TextBlock { Text = label, VerticalAlignment = VerticalAlignment.Center, Width = 230, TextWrapping = TextWrapping.Wrap, ToolTip = tip };
+        var text = new TextBlock { Text = label, VerticalAlignment = VerticalAlignment.Center, Width = 200, TextWrapping = TextWrapping.Wrap, ToolTip = tip };
         row.Children.Add(text);
         row.Children.Add(control);
         return row;
@@ -254,25 +294,94 @@ public sealed class SettingsWindow : Window
         return row;
     }
 
+    private UIElement ActivationSlider(string label, string hint, string id, double minimum, double maximum, double tick, double value, Func<double, string> format, Action<double> set)
+    {
+        var group = new StackPanel { Margin = new Thickness(0, 0, 0, 14) };
+        var caption = new DockPanel();
+        var readout = new TextBlock { Text = format(value), VerticalAlignment = VerticalAlignment.Center };
+        DockPanel.SetDock(readout, Dock.Right);
+        caption.Children.Add(readout);
+        caption.Children.Add(new TextBlock { Text = label, VerticalAlignment = VerticalAlignment.Center });
+        group.Children.Add(caption);
+        var slider = new Slider { Minimum = minimum, Maximum = maximum, TickFrequency = tick, IsSnapToTickEnabled = true, Value = value, SmallChange = tick, LargeChange = tick * 4, Margin = new Thickness(0, 7, 0, 4), MinHeight = 24 };
+        AutomationProperties.SetAutomationId(slider, id);
+        AutomationProperties.SetName(slider, label);
+        slider.ValueChanged += (_, _) => { readout.Text = format(slider.Value); set(slider.Value); Changed(); };
+        group.Children.Add(slider);
+        var help = new TextBlock { Text = hint, TextWrapping = TextWrapping.Wrap, FontSize = 12 };
+        help.SetResourceReference(TextBlock.ForegroundProperty, "MenuFgSecondary");
+        group.Children.Add(help);
+        return group;
+    }
+
+    private void RefreshShortcutStatus(string? text = null, bool error = false)
+    {
+        bool available = _shortcutRegistered?.Invoke() ?? true;
+        _shortcutStatus.Text = text ?? (available ? Strings.ShortcutReady : Strings.ShortcutUnavailable);
+        _shortcutStatus.SetResourceReference(TextBlock.ForegroundProperty,
+            error || (!available && text is null) ? "SettingsErrorFg" : "MenuFgSecondary");
+    }
+
+    private void BeginShortcutCapture()
+    {
+        _recordingShortcut = true;
+        _shortcutButton.Content = Strings.CancelShortcut;
+        _hotKey.Text = Strings.PressShortcut;
+        _hotKey.Focus();
+        RefreshShortcutStatus(Strings.ShortcutRecording);
+        _recorder = new ShortcutRecorder(() => IsActive && _recordingShortcut && _hotKey.IsKeyboardFocusWithin, ApplyRecordedKey);
+        if (!_recorder.Registered)
+        {
+            EndShortcutCapture();
+            RefreshShortcutStatus(Strings.ShortcutRecorderUnavailable, error: true);
+        }
+    }
+
+    private void EndShortcutCapture()
+    {
+        _recordingShortcut = false;
+        _recorder?.Dispose();
+        _recorder = null;
+        _shortcutButton.Content = Strings.ChangeShortcut;
+        _hotKey.Text = Settings.Current.HotKey;
+        RefreshShortcutStatus();
+    }
+
     private void OnHotKeyPressed(object sender, KeyEventArgs e)
     {
+        if (!_recordingShortcut) return;
         e.Handled = true;
         var key = e.Key == Key.System ? e.SystemKey : e.Key;
         if (key is Key.LeftCtrl or Key.RightCtrl or Key.LeftAlt or Key.RightAlt or Key.LeftShift or Key.RightShift or Key.LWin or Key.RWin) return;
-        if (key == Key.Escape) return;
-        var parts = new List<string>();
+        if (key == Key.Escape) { EndShortcutCapture(); return; }
         var mods = Keyboard.Modifiers;
-        if (mods.HasFlag(ModifierKeys.Control)) parts.Add("Ctrl");
-        if (mods.HasFlag(ModifierKeys.Alt)) parts.Add("Alt");
-        if (mods.HasFlag(ModifierKeys.Shift)) parts.Add("Shift");
-        if (mods.HasFlag(ModifierKeys.Windows)) parts.Add("Win");
-        if (parts.Count == 0 && key is not (>= Key.F1 and <= Key.F24)) return; // a bare letter would steal typing everywhere
-        parts.Add(key.ToString());
+        if (key == Key.Tab && mods == ModifierKeys.None) { EndShortcutCapture(); e.Handled = false; return; }
+        uint modifiers = (mods.HasFlag(ModifierKeys.Control) ? Native.MOD_CONTROL : 0) |
+                         (mods.HasFlag(ModifierKeys.Alt) ? Native.MOD_ALT : 0) |
+                         (mods.HasFlag(ModifierKeys.Shift) ? Native.MOD_SHIFT : 0) |
+                         (mods.HasFlag(ModifierKeys.Windows) ? Native.MOD_WIN : 0);
+        ApplyRecordedKey((uint)KeyInterop.VirtualKeyFromKey(key), modifiers);
+    }
+
+    private void ApplyRecordedKey(uint key, uint modifiers)
+    {
+        if (!_recordingShortcut) return;
+        if (key == 0x1B) { EndShortcutCapture(); return; }
+        var parts = new List<string>();
+        if ((modifiers & Native.MOD_CONTROL) != 0) parts.Add("Ctrl");
+        if ((modifiers & Native.MOD_ALT) != 0) parts.Add("Alt");
+        if ((modifiers & Native.MOD_SHIFT) != 0) parts.Add("Shift");
+        if ((modifiers & Native.MOD_WIN) != 0) parts.Add("Win");
+        parts.Add(((System.Windows.Forms.Keys)key).ToString());
         var text = string.Join("+", parts);
-        if (!HotKey.Parse(text, out _, out _)) return;
-        Settings.Current.HotKey = text;
-        _hotKey.Text = text;
-        Changed();
+        if (!HotKey.TryNormalize(text, out var normalized)) { RefreshShortcutStatus(Strings.ShortcutInvalid, error: true); return; }
+        if (_tryShortcut?.Invoke(normalized) != true)
+        {
+            _hotKey.Text = Settings.Current.HotKey;
+            RefreshShortcutStatus(Strings.ShortcutConflict(normalized), error: true);
+            return;
+        }
+        EndShortcutCapture();
     }
 
     private void Changed()
