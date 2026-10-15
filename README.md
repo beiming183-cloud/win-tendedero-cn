@@ -56,8 +56,6 @@ dotnet run --project tests/WinTendedero.Tests -c Release
 
 检查使用独立临时设置目录，不修改当前使用中的配置。
 
-## 来源与许可
+## 许可
 
-此项目基于 [mohabujubara/snapline](https://github.com/mohabujubara/snapline) 的固定提交 `6a1f2425aea144f692787033188b0d480dd09bf4`，应用中文补丁并改为独立的 **win-tendedero** 名称和图标。上游源自 macOS 的 [Tendedero](https://github.com/alejandrobujan/tendedero)。
-
-这是 Windows 衍生版，不是 macOS 原版发行包。代码采用 MIT 许可；原作者署名及字体许可见 [LICENSE](LICENSE) 和 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)。
+win-tendedero 采用 MIT 许可。完整许可与第三方声明见 [LICENSE](LICENSE) 和 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)。
