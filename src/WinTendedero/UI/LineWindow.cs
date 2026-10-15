@@ -132,6 +132,8 @@ public sealed class LineWindow : Window
             if (rect.Contains(p.Value)) return true;
         if (Canvas.HintRect is { } hint && hint.Contains(p.Value)) return true;
         if (Canvas.TagRect is { } tag && tag.Contains(p.Value)) return true;
+        if (Canvas.LibraryRect is { } library && library.Contains(p.Value)) return true;
+        if (Canvas.PagerRect is { } pager && pager.Contains(p.Value)) return true;
         return Canvas.RopeDragging || Canvas.IsOverRope(p.Value);
     }
 

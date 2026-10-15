@@ -18,6 +18,12 @@ public sealed class LineCanvas : Canvas
     private readonly Path _ropeShadow, _ropeCore, _ropeHighlight;
     private Path? _bowLeft, _bowRight;
     private readonly Grid _tag;
+    private readonly Button _library;
+    private readonly Border _pager;
+    private readonly Button _previous, _next;
+    private readonly TextBlock _pageLabel;
+    private int _page;
+    private Guid? _newest;
     private PeggedControl? _held;
     private int _topZ = 10;
     private bool _ropeDrag;
@@ -88,7 +94,7 @@ public sealed class LineCanvas : Canvas
 
         _line.ItemsChanged += Sync;
         _line.ItemUpdated += OnItemUpdated;
-        _line.Gust += () => { foreach (var c in _cards) if (!c.Item.Falling) c.Breeze(); StartTicking(); };
+        _line.Gust += () => { if (!Revealed || !SystemParameters.ClientAreaAnimation) return; foreach (var c in _cards) if (!c.Item.Falling) c.Breeze(now: true); StartTicking(); };
         _line.StateChanged += () => { foreach (var c in _cards) c.StateChanged(); StartTicking(); };
         Theme.Changed += Repaint;
         Pegs.LookChanged += Repaint;
@@ -105,12 +111,66 @@ public sealed class LineCanvas : Canvas
         _tag = BuildTag();
         Children.Add(_tag);
         SetZIndex(_tag, 2);
+        _library = ToolButton("M2,7 V3 H10 L13,6 H24 V21 H2 Z M2,9 H24", Strings.LibraryOpen, "OpenCaptureLibrary");
+        _library.Click += (_, _) => WinTendedero.Interop.Shell.OpenFolder(Inbox.Folder);
+        Children.Add(_library);
+        SetZIndex(_library, 6);
+        var pageRow = new StackPanel { Orientation = Orientation.Horizontal, Height = 32 };
+        _pager = new Border { CornerRadius = new CornerRadius(8), Child = pageRow };
+        _pager.SetResourceReference(Border.BackgroundProperty, "MenuBg");
+        _previous = ToolButton("M15,3 L6,12 L15,21", Strings.PreviousPage, "PreviousCapturePage");
+        _next = ToolButton("M6,3 L15,12 L6,21", Strings.NextPage, "NextCapturePage");
+        _pageLabel = new TextBlock { Width = 62, TextAlignment = TextAlignment.Center, VerticalAlignment = VerticalAlignment.Center, FontSize = 12 };
+        _pageLabel.SetResourceReference(TextBlock.ForegroundProperty, "MenuFg");
+        _previous.Click += (_, _) => ChangePage(-1);
+        _next.Click += (_, _) => ChangePage(1);
+        pageRow.Children.Add(_previous); pageRow.Children.Add(_pageLabel); pageRow.Children.Add(_next);
+        Children.Add(_pager);
+        SetZIndex(_pager, 6);
+        MouseWheel += (_, e) => { if (PageCount > 1) { ChangePage(e.Delta < 0 ? 1 : -1); e.Handled = true; } };
         LostMouseCapture += (_, _) => { if (_ropeDrag) { _ropeDrag = false; RopeDragEnded?.Invoke(); } };
-        SizeChanged += (_, _) => Relayout(snap: true);
+        SizeChanged += (_, _) => Sync();
         Sync();
     }
 
     public IReadOnlyList<PeggedControl> Cards => _cards;
+    public int PageCount => (int)Math.Ceiling(_line.LiveCount / (double)Layout.PageSize(Math.Max(ActualWidth, 320)));
+    public int PageIndex => _page;
+
+    public void ChangePage(int delta)
+    {
+        if (_held is not null) return;
+        int page = Math.Clamp(_page + delta, 0, Math.Max(0, PageCount - 1));
+        if (page == _page) return;
+        _page = page;
+        Sync();
+    }
+
+    private static Button ToolButton(string geometry, string name, string id)
+    {
+        var icon = new Path { Data = Geometry.Parse(geometry), Width = 20, Height = 18, Stretch = Stretch.Uniform, StrokeThickness = 1.6, StrokeLineJoin = PenLineJoin.Round, StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round };
+        icon.SetResourceReference(Path.StrokeProperty, "MenuFg");
+        var button = new Button { Content = icon, Width = 36, Height = 32, ToolTip = name, Padding = new Thickness(7), BorderThickness = new Thickness(0), Cursor = System.Windows.Input.Cursors.Hand };
+        button.SetResourceReference(Button.BackgroundProperty, "MenuBg");
+        var border = new FrameworkElementFactory(typeof(Border));
+        border.SetValue(Border.CornerRadiusProperty, new CornerRadius(8));
+        border.SetBinding(Border.BackgroundProperty, new System.Windows.Data.Binding("Background") { RelativeSource = System.Windows.Data.RelativeSource.TemplatedParent });
+        var presenter = new FrameworkElementFactory(typeof(ContentPresenter));
+        presenter.SetValue(FrameworkElement.HorizontalAlignmentProperty, HorizontalAlignment.Center);
+        presenter.SetValue(FrameworkElement.VerticalAlignmentProperty, VerticalAlignment.Center);
+        border.AppendChild(presenter);
+        var template = new ControlTemplate(typeof(Button)) { VisualTree = border };
+        var disabled = new Trigger { Property = IsEnabledProperty, Value = false };
+        disabled.Setters.Add(new Setter(OpacityProperty, 0.35));
+        template.Triggers.Add(disabled);
+        var hover = new Trigger { Property = IsMouseOverProperty, Value = true };
+        hover.Setters.Add(new Setter(OpacityProperty, 0.75));
+        template.Triggers.Add(hover);
+        button.Template = template;
+        System.Windows.Automation.AutomationProperties.SetAutomationId(button, id);
+        System.Windows.Automation.AutomationProperties.SetName(button, name);
+        return button;
+    }
 
     private void PaintRope()
     {
@@ -129,6 +189,8 @@ public sealed class LineCanvas : Canvas
         ((TextBlock)_hint.Child).Text = Strings.Hint;
         _hint.ToolTip = Strings.NewCaptureTip;
         _hint.FlowDirection = Strings.Flow;
+        Height = Layout.PanelHeight;
+        _library.ToolTip = Strings.LibraryOpen;
         // Cards are rebuilt with the new colours.
         foreach (var c in _cards.ToList()) Children.Remove(c);
         _cards.Clear();
@@ -165,7 +227,14 @@ public sealed class LineCanvas : Canvas
 
     private void Sync()
     {
-        var items = _line.Items;
+        var live = _line.Items.Where(i => !i.Falling).ToList();
+        if (live.LastOrDefault()?.Id is { } newest && newest != _newest)
+        {
+            _newest = newest;
+            _page = Math.Max(0, PageCount - 1);
+        }
+        _page = Math.Clamp(_page, 0, Math.Max(0, PageCount - 1));
+        var items = live.Skip(_page * Layout.PageSize(Math.Max(ActualWidth, 320))).Take(Layout.PageSize(Math.Max(ActualWidth, 320))).ToList();
         // Remove what is gone.
         foreach (var card in _cards.Where(c => !items.Contains(c.Item)).ToList())
         {
@@ -182,7 +251,11 @@ public sealed class LineCanvas : Canvas
             Children.Add(card);
             SetZIndex(card, 2);
         }
-        _cards.Sort((a, b) => items.ToList().IndexOf(a.Item).CompareTo(items.ToList().IndexOf(b.Item)));
+        _cards.Sort((a, b) => items.IndexOf(a.Item).CompareTo(items.IndexOf(b.Item)));
+        _pager.Visibility = PageCount > 1 ? Visibility.Visible : Visibility.Collapsed;
+        _previous.IsEnabled = _page > 0;
+        _next.IsEnabled = _page < PageCount - 1;
+        _pageLabel.Text = $"{_page + 1} / {Math.Max(1, PageCount)}";
         Relayout(snap: false);
         bool empty = _line.LiveCount == 0;
         _hintOpacity.Go(empty ? 1 : 0, 0.3);
@@ -227,6 +300,10 @@ public sealed class LineCanvas : Canvas
         SetTop(_tag, Layout.RopeY(tagX, _width) - Layout.PinAbove * 0.75);
         SetLeft(_hint, mid - _hint.DesiredSize.Width / 2);
         SetTop(_hint, Layout.RopeY(mid, _width) + 34 - _hint.DesiredSize.Height / 2);
+        SetLeft(_library, 18);
+        SetTop(_library, Layout.RopeY(36, _width) + 16);
+        SetLeft(_pager, mid - 67);
+        SetTop(_pager, Layout.PanelHeight - 38);
     }
 
     /// <summary>The nearest place to the middle of the line with room for a card, remembered on the photo.</summary>
@@ -311,7 +388,7 @@ public sealed class LineCanvas : Canvas
             double d = Math.Abs(centerX - Layout.X(i, live.Count, _width));
             if (d < best) { best = d; to = i; }
         }
-        if (to != from) _line.Move(card.Item.Id, to);
+        if (to != from) _line.Move(card.Item.Id, _page * Layout.PageSize(_width) + to);
         StartTicking();
     }
 
@@ -368,6 +445,9 @@ public sealed class LineCanvas : Canvas
         ? new Rect(GetLeft(_tag) + (Layout.CardWidth - TagWidth) / 2 - 4, GetTop(_tag), TagWidth + 8, Layout.PinHeight * 0.75 + TagHeight + 2)
         : null;
 
+    public Rect? LibraryRect => _width > 0 ? new Rect(GetLeft(_library), GetTop(_library), 36, 32) : null;
+    public Rect? PagerRect => _width > 0 && _pager.Visibility == Visibility.Visible ? new Rect(GetLeft(_pager), GetTop(_pager), 134, 32) : null;
+
     public event Action? RopeDragStarted;
     public event Action? RopeDragEnded;
     public bool RopeDragging => _ropeDrag;
@@ -377,6 +457,7 @@ public sealed class LineCanvas : Canvas
     {
         if (_width <= 0 || p.X < 0 || p.X > _width) return false;
         if (CardHitRects().Any(h => h.rect.Contains(p))) return false;
+        if (LibraryRect is { } library && library.Contains(p) || PagerRect is { } pager && pager.Contains(p)) return false;
         return Math.Abs(p.Y - Layout.RopeY(p.X, _width)) <= 9;
     }
 
@@ -452,7 +533,7 @@ public sealed class LineCanvas : Canvas
         _hintOpacity.Step(dt);
         _hint.Opacity = _hintOpacity.Value;
         active |= !_hintOpacity.Done;
-        foreach (var card in _cards) { card.Tick(dt); active |= card.Active; }
+        foreach (var card in _cards) { if (card.Active) card.Tick(dt); active |= card.Active; }
         return active;
     }
 

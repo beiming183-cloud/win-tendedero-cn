@@ -5,19 +5,22 @@ namespace WinTendedero.UI;
 /// <summary>Where everything goes, in device independent pixels.</summary>
 public static class Layout
 {
-    public const double PanelHeight = 240;
+    public static double Scale => Math.Clamp(Core.Settings.Current.CardScale, 1, 2);
+    public static double PanelHeight => 180 + 120 * Scale;
     public const double RopeTop = 10;
-    public const double Spacing = 174;
-    public const double CardWidth = 150;
+    public static double Spacing => CardWidth + 22;
+    public static double CardWidth => 150 * Scale;
     /// <summary>How far above the rope the top of the clip sits.</summary>
     public const double PinAbove = 9.5;
     public const double PinHeight = 26;
     public const double PinWidth = 9;
     /// <summary>Distance from the top of the hanging view (the clip) to the card.</summary>
     public const double CardOffsetBelowTop = PinHeight - 12;
-    public const double FrameRadius = 16;
-    public const double FrameInset = 4;
-    public const double PhotoMaxHeight = 104;
+    public const double FrameRadius = 12;
+    public const double FrameInset = 3;
+    public static double PhotoMaxHeight => 118 * Scale;
+
+    public static int PageSize(double width) => Math.Max(1, (int)((width - 160) / Spacing));
 
     /// <summary>The rope hangs as a parabola from edge to edge of the screen.</summary>
     public static double Sag(double width) => Math.Min(58, width * 0.036);
@@ -31,8 +34,9 @@ public static class Layout
 
     public static double X(int index, int count, double width)
     {
-        double total = Math.Max(count - 1, 0) * Spacing;
-        return width / 2 - total / 2 + index * Spacing;
+        double spacing = Math.Min(Spacing, Math.Max(1, (width - CardWidth - 160) / Math.Max(1, count - 1)));
+        double total = Math.Max(count - 1, 0) * spacing;
+        return width / 2 - total / 2 + index * spacing;
     }
 
     /// <summary>The photo fits inside the card area keeping its proportions.</summary>

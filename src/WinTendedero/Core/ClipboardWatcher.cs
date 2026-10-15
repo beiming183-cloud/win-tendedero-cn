@@ -66,8 +66,9 @@ public sealed class ClipboardWatcher : IDisposable
         "Object Descriptor", "Link Source", "Embed Source", "Shell IDList Array", "FileName", "FileNameW",
     };
 
-    private void TryCatch()
+    private async void TryCatch()
     {
+        if (!Enabled || !_listening) return;
         try
         {
             IDataObject data;
@@ -84,8 +85,12 @@ public sealed class ClipboardWatcher : IDisposable
             {
                 try
                 {
-                    var decoder = new PngBitmapDecoder(png, BitmapCreateOptions.IgnoreColorProfile, BitmapCacheOption.OnLoad);
-                    image = decoder.Frames[0];
+                    using (png)
+                    {
+                        var decoder = new PngBitmapDecoder(png, BitmapCreateOptions.IgnoreColorProfile, BitmapCacheOption.OnLoad);
+                        image = decoder.Frames[0];
+                        image.Freeze();
+                    }
                 }
                 catch { image = null; }
             }
@@ -94,9 +99,16 @@ public sealed class ClipboardWatcher : IDisposable
             if (_recentlyHungFromFile(image.PixelWidth, image.PixelHeight)) return;
 
             var path = Inbox.NewCapturePath();
-            Thumbnails.SavePng(image, path);
+            if (!image.IsFrozen) image.Freeze();
+            int width = image.PixelWidth, height = image.PixelHeight;
+            await Task.Run(() =>
+            {
+                var temporary = path + "." + Guid.NewGuid().ToString("N") + ".capturing";
+                try { Thumbnails.SavePng(image, temporary); File.Move(temporary, path); }
+                finally { if (File.Exists(temporary)) File.Delete(temporary); }
+            });
             Log.Notice($"Caught a clipboard capture: {Path.GetFileName(path)}");
-            _onCapture(path, image.PixelWidth, image.PixelHeight);
+            if (_listening) _onCapture(path, width, height);
         }
         catch (Exception e)
         {

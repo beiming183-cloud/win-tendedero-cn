@@ -12,12 +12,12 @@ public sealed class Pegged
     private static readonly Random Rng = new();
 
     public Guid Id { get; } = Guid.NewGuid();
-    public string Path { get; }
+    public string Path { get; internal set; }
     public BitmapSource Thumb { get; set; }
     public int PixelWidth { get; set; }
     public int PixelHeight { get; set; }
     /// <summary>Every photo hangs a little crooked, like on a real line.</summary>
-    public double Tilt { get; } = Rng.NextDouble() * 5 - 2.5;
+    public double Tilt { get; } = Rng.NextDouble() * 2 - 1;
     public bool Falling { get; set; }
     /// <summary>Still flying in from where it was captured; the card waits hidden.</summary>
     public bool Flying { get; set; }
@@ -87,7 +87,7 @@ public sealed class Line
     {
         _persist = persist;
         Sounds.Enabled = persist && SoundOn;
-        if (persist) Restore();
+        if (persist) Save(); // The rope is a session; the capture library owns durable files.
         ScheduleGust();
     }
 
@@ -304,9 +304,12 @@ public sealed class Line
     }
 
     /// <summary>The corner cross and "Take down" both end up here.</summary>
-    public void Discard(Guid id)
+    public void Discard(Guid id) => Drop(id);
+
+    public void FollowLibraryPaths()
     {
-        if (IsInInbox(id)) Trash(id); else Drop(id);
+        foreach (var item in _items)
+            item.Path = CaptureLibrary.Resolve(item.Path);
     }
 
     /// <summary>Keep a caught capture by moving it to the Desktop.</summary>
@@ -334,12 +337,12 @@ public sealed class Line
     }
 
     /// <summary>After editing, the photo on the line shows the new version.</summary>
-    public void ReloadThumbnail(string path)
+    public async void ReloadThumbnail(string path)
     {
         var item = _items.FirstOrDefault(i => !i.Falling && string.Equals(i.Path, path, StringComparison.OrdinalIgnoreCase));
         if (item is null) return;
-        var thumb = Thumbnails.Load(path);
-        if (thumb is null) return;
+        var thumb = await Task.Run(() => Thumbnails.Load(path));
+        if (thumb is null || item.Falling || !_items.Contains(item)) return;
         item.Thumb = thumb.Value.Image;
         item.PixelWidth = thumb.Value.PixelWidth;
         item.PixelHeight = thumb.Value.PixelHeight;
@@ -400,21 +403,13 @@ public sealed class Line
     private void Save()
     {
         if (!_persist) return;
-        Settings.Current.Pegged = _items.Where(i => !i.Falling).Select(i => i.Path).ToList();
-        Settings.Current.PinnedPaths = _items.Where(i => !i.Falling && i.Pinned).Select(i => i.Path).ToList();
-        Settings.Current.Spots = _items.Where(i => !i.Falling && i.Spot is not null).ToDictionary(i => i.Path, i => i.Spot!.Value, StringComparer.OrdinalIgnoreCase);
+        // Session operations never write image lists to disk or delete library files.
+        if (Settings.Current.Pegged.Count == 0 && Settings.Current.PinnedPaths.Count == 0 && Settings.Current.Spots.Count == 0) return;
+        Settings.Current.PendingArchive = Settings.Current.PendingArchive.Concat(Settings.Current.Pegged).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        Settings.Current.Pegged.Clear();
+        Settings.Current.PinnedPaths.Clear();
+        Settings.Current.Spots.Clear();
         Settings.Current.Save();
-    }
-
-    private void Restore()
-    {
-        foreach (var path in Settings.Current.Pegged.ToList())
-            if (File.Exists(path) && Hang(path, quietly: true) is { } id && Find(id) is { } item)
-            {
-                item.Used = true;
-                item.Pinned = Settings.Current.PinnedPaths.Contains(path, StringComparer.OrdinalIgnoreCase);
-                if (Settings.Current.Spots.TryGetValue(path, out var spot)) item.Spot = spot;
-            }
     }
 
     private void Later(double seconds, Action action)

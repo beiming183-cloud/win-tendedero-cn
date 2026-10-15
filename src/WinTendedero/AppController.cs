@@ -16,7 +16,12 @@ namespace WinTendedero;
 /// </summary>
 public sealed class AppController : IDisposable
 {
+    private readonly string[] _previousSession = Settings.Current.Pegged.Concat(Settings.Current.PendingArchive).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
     private readonly Line _line = new();
+    private readonly SemaphoreSlim _captureGate = new(1, 1);
+    private readonly HashSet<string> _loading = new(StringComparer.OrdinalIgnoreCase);
+    private bool _disposed;
+    private string? _visualSettings;
     private readonly LineWindow _panel;
     private readonly MessageWindow _messages = new();
     private readonly TrayIcon _tray;
@@ -62,6 +67,7 @@ public sealed class AppController : IDisposable
         Strings.Refresh();
 
         _panel = new LineWindow(_line);
+        _visualSettings = VisualSettings();
         _panel.PlaceOn();
         _panel.Show();
         _panel.OrderOut();
@@ -80,6 +86,7 @@ public sealed class AppController : IDisposable
         StartWatchers();
         _shortcut = new ShortcutBinding(_messages, Toggle);
         RegisterHotKey();
+        ArchivePreviousSession();
 
         _line.Fall += Fall;
         _line.ItemsChanged += ItemsChanged;
@@ -161,18 +168,44 @@ public sealed class AppController : IDisposable
     // MARK: The capture flying to the line
 
     /// <summary>A new screenshot lifts off from where it was taken and flies to its place on the line.</summary>
-    private void HangCapture(string path, bool fromFile)
+    private async void HangCapture(string path, bool fromFile)
     {
-        var thumb = Thumbnails.Load(path);
-        if (thumb is null) return;
-        if (fromFile) _recentFileCaptures.Add((DateTime.Now, thumb.Value.PixelWidth, thumb.Value.PixelHeight));
+        if (_disposed || CaptureLibrary.IsInternalWrite(path) || !_loading.Add(path)) return;
+        await _captureGate.WaitAsync();
+        try
+        {
+            if (_disposed) return;
+            var result = await Task.Run(() =>
+            {
+                var thumb = Thumbnails.Load(path);
+                return (thumb, saved: thumb is null ? path : CaptureLibrary.Store(path));
+            });
+            if (_disposed || result.thumb is not { } thumb) return;
+            if (fromFile) _recentFileCaptures.Add((DateTime.Now, thumb.PixelWidth, thumb.PixelHeight));
+            var from = CaptureRect.Infer(thumb.PixelWidth, thumb.PixelHeight);
+            if (from is not null) _pendingMonitor = from.Value.monitor;
+            // Reuse the already decoded thumbnail for the arrival, keeping full-size images off the UI thread.
+            var id = _line.Hang(result.saved, flying: from is not null && SystemParameters.ClientAreaAnimation, preloaded: thumb);
+            if (id is null || from is null || !SystemParameters.ClientAreaAnimation) return;
+            Later(0.03, () => Fly(id.Value, from.Value.rect, from.Value.monitor));
+        }
+        catch (Exception e) { Log.Error($"Could not archive capture: {e.Message}"); _tray.Balloon(Strings.AppName, "截图保存失败，请检查保存位置和磁盘空间。原文件仍在原位置。"); }
+        finally { _loading.Remove(path); _captureGate.Release(); }
+    }
 
-        var from = CaptureRect.Infer(thumb.Value.PixelWidth, thumb.Value.PixelHeight);
-        if (from is not null) _pendingMonitor = from.Value.monitor;
-        var id = _line.Hang(path, flying: from is not null, preloaded: thumb);
-        if (id is null || from is null) return;
-        // Let the line come down and lay out before measuring the landing spot.
-        Later(0.03, () => Fly(id.Value, from.Value.rect, from.Value.monitor));
+    private async void ArchivePreviousSession()
+    {
+        var completed = new List<string>();
+        await Task.Run(() =>
+        {
+            foreach (var path in _previousSession)
+            {
+                try { if (File.Exists(path) && !Notes.IsNote(path)) CaptureLibrary.Store(path); completed.Add(path); }
+                catch (Exception e) { Log.Error($"Could not archive previous session: {e.Message}"); }
+            }
+        });
+        Settings.Current.PendingArchive.RemoveAll(completed.Contains);
+        Settings.Current.Save();
     }
 
     private void Fly(Guid id, RECT from, Display monitor)
@@ -184,9 +217,7 @@ public sealed class AppController : IDisposable
             _line.Land(id);
             return;
         }
-        int pixels = (int)Math.Max(from.Width, from.Height);
-        var image = Thumbnails.Load(item.Path, Math.Min(3000, Math.Max(400, pixels)), 2)?.Image ?? item.Thumb;
-        FlightWindow.Fly(image, from, to, item.Tilt, monitor, Seed(item), () => _line.Land(id));
+        FlightWindow.Fly(item.Thumb, from, to, item.Tilt, monitor, Seed(item), () => _line.Land(id));
     }
 
     /// <summary>A discarded card falls over the whole screen, from where it hangs.</summary>
@@ -411,10 +442,7 @@ public sealed class AppController : IDisposable
 
     private void UpdateCapacity()
     {
-        double usable = _panel.Canvas.Width - 200;
-        if (double.IsNaN(usable) || usable <= 0) usable = _panel.ActualWidth - 200;
-        int fit = Math.Max(3, Math.Min(12, (int)(usable / Layout.Spacing)));
-        _line.MaxItems = Settings.Current.MaxItems is { } max && max > 0 ? Math.Min(max, fit) : fit;
+        _line.MaxItems = Math.Clamp(Settings.Current.MaxItems ?? 24, 4, 64);
     }
 
     // MARK: Welcome
@@ -438,9 +466,12 @@ public sealed class AppController : IDisposable
     /// <summary>Settings changed: the shortcut, the folders and the clipboard watcher follow.</summary>
     public void ApplySettings()
     {
+        _line.FollowLibraryPaths();
+        UpdateCapacity();
         Theme.ApplySetting();
         Strings.Refresh();
-        Pegs.RaiseLookChanged();
+        string visual = VisualSettings();
+        if (_visualSettings != visual) { _visualSettings = visual; Pegs.RaiseLookChanged(); }
         _tray.Repaint();
         if (_panel.Display is { } d) _panel.PlaceOn(d);
         if (_requestedShortcut != Settings.Current.HotKey) RegisterHotKey();
@@ -454,6 +485,8 @@ public sealed class AppController : IDisposable
     }
 
     // MARK: Menu
+
+    private static string VisualSettings() => $"{Settings.Current.RopeColor}|{Settings.Current.PegStyle}|{Settings.Current.Bows}|{Settings.Current.CardScale}|{Settings.Current.AutoArrange}";
 
     private ContextMenu BuildMenu()
     {
@@ -542,6 +575,7 @@ public sealed class AppController : IDisposable
 
     public void Dispose()
     {
+        _disposed = true;
         _mouseTimer.Stop();
         _themeTimer.Stop();
         foreach (var w in _watchers) w.Dispose();

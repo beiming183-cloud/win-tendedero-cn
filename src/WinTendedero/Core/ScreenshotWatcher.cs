@@ -22,6 +22,7 @@ public sealed class ScreenshotWatcher : IDisposable
     private readonly DispatcherTimer _poll;
     private FileSystemWatcher? _watcher;
     private readonly HashSet<string> _dirty = new(StringComparer.OrdinalIgnoreCase);
+    private bool _scanning, _disposed, _rescan;
 
     public ScreenshotWatcher(string folder, Action<string> onNew, Action<string> onModified, Action onChange)
     {
@@ -43,11 +44,7 @@ public sealed class ScreenshotWatcher : IDisposable
         catch (Exception e) { Log.Error($"Cannot create {Folder}: {e.Message}"); return; }
 
         // Anything already there is old news, unless it landed since launch.
-        foreach (var (path, written) in Listing())
-        {
-            if (written >= _launch && Thumbnails.IsImage(path)) _onNew(path);
-            _known[path] = written;
-        }
+        Scan();
 
         try
         {
@@ -82,9 +79,15 @@ public sealed class ScreenshotWatcher : IDisposable
         });
     }
 
-    private void Scan()
+    private async void Scan()
     {
-        var current = Listing();
+        if (_disposed) return;
+        if (_scanning) { _rescan = true; return; }
+        _scanning = true;
+        var dirty = _dirty.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        _dirty.Clear();
+        var current = await Task.Run(Listing);
+        if (_disposed) { _scanning = false; return; }
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var (path, written) in current)
         {
@@ -97,12 +100,13 @@ public sealed class ScreenshotWatcher : IDisposable
             else if (written > before)
             {
                 _known[path] = written;
-                if (Thumbnails.IsImage(path) && _dirty.Contains(path)) _onModified(path);
+                if (Thumbnails.IsImage(path) && dirty.Contains(path)) _onModified(path);
             }
         }
         foreach (var gone in _known.Keys.Where(k => !seen.Contains(k)).ToList()) _known.Remove(gone);
-        _dirty.Clear();
         _onChange();
+        _scanning = false;
+        if (_rescan) { _rescan = false; Scan(); }
     }
 
     private List<(string path, DateTime written)> Listing()
@@ -128,6 +132,7 @@ public sealed class ScreenshotWatcher : IDisposable
 
     public void Dispose()
     {
+        _disposed = true;
         _debounce.Stop();
         _poll.Stop();
         if (_watcher is not null)

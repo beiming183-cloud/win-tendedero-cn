@@ -3,10 +3,7 @@ using System.IO;
 namespace WinTendedero.Core;
 
 /// <summary>
-/// WinTendedero's own folder. Captures caught from the clipboard are written
-/// here, and anything hanging from here is discarded to the Recycle Bin, or
-/// the folder would fill up with forgotten screenshots. Files anywhere else,
-/// like Pictures\Screenshots, stay where they are when taken down.
+/// Permanent screenshot library. Taking a card down never deletes its file.
 /// </summary>
 public static class Inbox
 {
@@ -16,7 +13,7 @@ public static class Inbox
         {
             var custom = Settings.Current.InboxFolder;
             var folder = string.IsNullOrWhiteSpace(custom)
-                ? Path.Combine(Settings.Folder, "Screenshots")
+                ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyPictures), "win-tendedero")
                 : Environment.ExpandEnvironmentVariables(custom);
             try { Directory.CreateDirectory(folder); } catch { }
             return folder;
@@ -29,28 +26,10 @@ public static class Inbox
         return Path.GetFullPath(path).StartsWith(folder, StringComparison.OrdinalIgnoreCase);
     }
 
-    /// <summary>
-    /// Whether a folder may hold caught captures. Discarding a caught capture
-    /// sends it to the Recycle Bin, so the folder must never be, contain or sit
-    /// inside a place where the user's own screenshots live.
-    /// </summary>
-    public static bool IsSafeFolder(string candidate, IEnumerable<string> protectedFolders)
-    {
-        string Norm(string p) => Path.GetFullPath(p).TrimEnd('\\') + "\\";
-        var c = Norm(candidate);
-        foreach (var p in protectedFolders)
-        {
-            string n;
-            try { n = Norm(p); } catch { continue; }
-            if (c.StartsWith(n, StringComparison.OrdinalIgnoreCase) || n.StartsWith(c, StringComparison.OrdinalIgnoreCase)) return false;
-        }
-        return true;
-    }
-
     /// <summary>A fresh file name for a capture, like the Snipping Tool's.</summary>
     public static string NewCapturePath()
     {
-        var stamp = DateTime.Now.ToString("yyyy-MM-dd HHmmss");
+        var stamp = DateTime.Now.ToString("yyyy-MM-dd HHmmssfff");
         var path = Path.Combine(Folder, $"Screenshot {stamp}.png");
         int n = 2;
         while (File.Exists(path)) path = Path.Combine(Folder, $"Screenshot {stamp} ({n++}).png");

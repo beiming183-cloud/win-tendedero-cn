@@ -22,7 +22,7 @@ public sealed class PeggedControl : Canvas
     private readonly Line _line;
 
     // Motion
-    private readonly Spring _swing = Spring.Raw(46, 2.6);                       // degrees
+    private readonly Spring _swing = Spring.Raw(64, 12);                       // settles promptly
     private readonly Spring _arrive = Spring.FromResponse(0.42, 0.72, -46);     // y offset while dropping in
     private readonly Spring _hoverScale = Spring.FromResponse(0.3, 0.6, 1);
     private readonly Tween _pressScale = new(1);
@@ -38,6 +38,7 @@ public sealed class PeggedControl : Canvas
     // Visuals
     private readonly RotateTransform _rotate = new();
     private readonly TranslateTransform _drop = new();
+    private readonly TranslateTransform _position = new();
     private readonly ScaleTransform _cardScale = new();
     private readonly Grid _cardHost;
     private readonly Border _frame;
@@ -81,17 +82,19 @@ public sealed class PeggedControl : Canvas
         var group = new TransformGroup();
         group.Children.Add(_rotate);
         group.Children.Add(_drop);
+        group.Children.Add(_position);
         RenderTransform = group;
         _rotate.CenterX = Layout.CardWidth / 2;
         _rotate.CenterY = 0;
 
         // Card
         _cardSize = Layout.CardSize(item.PixelWidth, item.PixelHeight);
-        _shadowEffect = new DropShadowEffect { Color = Colors.Black, Direction = 270, ShadowDepth = 5, BlurRadius = 20, Opacity = 0.18 };
+        _shadowEffect = new DropShadowEffect { Color = Colors.Black, Direction = 270, ShadowDepth = 3, BlurRadius = 12, Opacity = 0.14 };
         _cardHost = new Grid
         {
             Width = _cardSize.Width, Height = _cardSize.Height,
             RenderTransform = _cardScale,
+            CacheMode = new BitmapCache { RenderAtScale = 1.5, SnapsToDevicePixels = true },
             Effect = _shadowEffect,
             Background = Brushes.Transparent,
             Cursor = Cursors.Arrow,
@@ -316,7 +319,7 @@ public sealed class PeggedControl : Canvas
             double scale = _cardScale.ScaleX;
             double w = _cardSize.Width * scale, h = _cardSize.Height * scale;
             double x = _x.Value - w / 2;
-            double y = top + Layout.CardOffsetBelowTop + _drop.Y;
+            double y = top + _position.Y + Layout.CardOffsetBelowTop + _drop.Y;
             return new Rect(x, y, w, h);
         }
     }
@@ -333,7 +336,7 @@ public sealed class PeggedControl : Canvas
             _opacity.Snap(0);
             return;
         }
-        _swing.Snap(16);
+        _swing.Snap(SystemParameters.ClientAreaAnimation ? 5 : 0);
         _swing.Target = 0;
         _arrive.Target = 0;
         _opacity.Go(1, 0.28, Ease.OutQuad);
@@ -401,12 +404,11 @@ public sealed class PeggedControl : Canvas
         _opacity.Step(dt); _cardOpacity.Step(dt); _crossOpacity.Step(dt); _crossScale.Step(dt);
         _copiedOpacity.Step(dt); _copiedOffset.Step(dt); _shadow.Step(dt);
 
-        SetLeft(this, _x.Value - Layout.CardWidth / 2);
+        _position.X = _x.Value - Layout.CardWidth / 2;
         if (RopeYAt is not null)
         {
             double ropeY = RopeYAt(_x.Value);
-            SetTop(this, ropeY - Layout.PinAbove);
-            Height = Layout.PanelHeight - ropeY;
+            _position.Y = ropeY - Layout.PinAbove - GetTop(this);
         }
         _rotate.Angle = _swing.Value + Item.Tilt;
         _drop.Y = _arrive.Value;
@@ -417,9 +419,9 @@ public sealed class PeggedControl : Canvas
         _cardHost.Opacity = _cardOpacity.Value;
 
         double s = _shadow.Value;
-        _shadowEffect.Opacity = 0.18 + 0.08 * s;
-        _shadowEffect.BlurRadius = 20 + 8 * s;
-        _shadowEffect.ShadowDepth = 5 + 3 * s;
+        _shadowEffect.Opacity = 0.14 + 0.06 * s;
+        _shadowEffect.BlurRadius = 12;
+        _shadowEffect.ShadowDepth = 3 + 2 * s;
 
         _cross.Opacity = _pen.Opacity = _crossOpacity.Value;
         ((ScaleTransform)_cross.RenderTransform).ScaleX = ((ScaleTransform)_cross.RenderTransform).ScaleY = _crossScale.Value;
@@ -557,7 +559,8 @@ public sealed class PeggedControl : Canvas
         menu.Items.Add(new Separator());
         if (inInbox)
         {
-            menu.Items.Add(MenuItemFor(Strings.Discard, () => _line.Discard(id)));
+            menu.Items.Add(MenuItemFor(Strings.TakeDown, () => _line.Discard(id)));
+            menu.Items.Add(MenuItemFor(Strings.MoveToRecycleBin, () => _line.Trash(id)));
         }
         else
         {

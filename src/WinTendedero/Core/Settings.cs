@@ -104,10 +104,13 @@ public sealed class Settings
     public string HotKey { get; set; } = "Ctrl+Alt+T";
     /// <summary>Extra folders to watch, for ShareX, Greenshot and friends.</summary>
     public List<string> WatchFolders { get; set; } = new();
-    /// <summary>Where clipboard captures are written. Defaults to WinTendedero's own folder.</summary>
+    /// <summary>Permanent capture folder, including copies of captures from watched folders.</summary>
     public string? InboxFolder { get; set; }
-    /// <summary>Monitor DPI scale aware maximum; null means as many as fit.</summary>
+    /// <summary>Session capacity, independent of the number of cards fitting on one page.</summary>
     public int? MaxItems { get; set; }
+    public double CardScale { get; set; } = 1.4;
+    public bool LibraryInitialized { get; set; } = true;
+    public List<string> PendingArchive { get; set; } = new();
 
     private static Settings Load()
     {
@@ -122,6 +125,13 @@ public sealed class Settings
                 if (legacyActivation && Math.Abs(loaded.RevealDelay - 0.5) < 0.0001) loaded.RevealDelay = 0.2;
                 loaded.RevealDelay = EdgeActivation.Delay(loaded.RevealDelay);
                 loaded.RevealBand = EdgeActivation.Band(loaded.RevealBand);
+                if (!loaded.LibraryInitialized || !document.RootElement.EnumerateObject().Any(p => p.Name.Equals("libraryInitialized", StringComparison.OrdinalIgnoreCase)))
+                {
+                    loaded.MaxItems = Math.Clamp(loaded.MaxItems ?? 24, 24, 64);
+                    if (string.IsNullOrWhiteSpace(loaded.InboxFolder) && Directory.Exists(Path.Combine(Folder, "Screenshots"))) loaded.InboxFolder = Path.Combine(Folder, "Screenshots");
+                    loaded.LibraryInitialized = true;
+                }
+                loaded.CardScale = double.IsFinite(loaded.CardScale) ? Math.Clamp(loaded.CardScale, 1, 2) : 1.4;
                 // Paths are matched regardless of case; the deserializer forgets that.
                 loaded.Spots = new Dictionary<string, double>(loaded.Spots, StringComparer.OrdinalIgnoreCase);
                 loaded.Notes = new Dictionary<string, NoteData>(loaded.Notes, StringComparer.OrdinalIgnoreCase);

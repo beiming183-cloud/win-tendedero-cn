@@ -25,7 +25,8 @@ internal static class Tests
         Environment.SetEnvironmentVariable("WIN_TENDEDERO_DATA_DIR", data);
         File.WriteAllText(Path.Combine(data, "settings.json"), """{"revealDelay":0.5,"language":"zh","soundOn":false,"welcomed":true,"hotKey":"Ctrl+Alt+T"}""");
         Run(root);
-        Console.WriteLine($"PASS: {_checks} activation, native shortcut and settings interaction checks.");
+        LibraryChecks.Run(root, Check);
+        Console.WriteLine($"PASS: {_checks} activation, native shortcut, library, session and pagination checks.");
         return 0;
     }
 

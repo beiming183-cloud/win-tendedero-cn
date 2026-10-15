@@ -132,6 +132,8 @@ public sealed class SettingsWindow : Window
         RefreshShortcutStatus();
 
         stack.Children.Add(Heading(Strings.SectionLine));
+        stack.Children.Add(ActivationSlider(Strings.CaptureSize, Strings.CaptureSizeHint, "CardScale", 100, 200, 10, s.CardScale * 100, v => $"{v:0}%", v => s.CardScale = v / 100));
+        stack.Children.Add(ActivationSlider(Strings.CaptureLimit, Strings.CaptureLimitHint, "MaxItems", 4, 64, 4, s.MaxItems ?? 24, v => $"{v:0}", v => s.MaxItems = (int)v));
         stack.Children.Add(Check(Strings.StayDownWhileUnused, Strings.StayDownWhileUnusedTip, s.StayDownWhileUnused, v => s.StayDownWhileUnused = v));
         stack.Children.Add(Check(Strings.TakeDownAfterDrag, Strings.TakeDownAfterDragTip, s.TakeDownAfterDrag, v => s.TakeDownAfterDrag = v));
 
@@ -170,19 +172,18 @@ public sealed class SettingsWindow : Window
         var inboxRow = new DockPanel { Margin = new Thickness(0, 6, 0, 2) };
         var change = new Button { Content = Strings.Change, Padding = new Thickness(12, 4, 12, 4), Margin = new Thickness(8, 0, 8, 0), VerticalAlignment = VerticalAlignment.Center };
         DockPanel.SetDock(change, Dock.Right);
-        change.Click += (_, _) =>
+        change.Click += async (_, _) =>
         {
             var dialog = new Microsoft.Win32.OpenFolderDialog { Title = Strings.OpenInboxFolder, InitialDirectory = Inbox.Folder };
             if (dialog.ShowDialog(this) != true) return;
-            var guarded = new List<string> { Shell.ScreenshotsFolder(), Shell.Desktop(),
-                Environment.GetFolderPath(Environment.SpecialFolder.MyPictures), Environment.GetFolderPath(Environment.SpecialFolder.UserProfile) };
-            guarded.AddRange(s.WatchFolders.Select(Environment.ExpandEnvironmentVariables));
-            if (!Inbox.IsSafeFolder(dialog.FolderName, guarded))
+            change.IsEnabled = false;
+            try
             {
-                MessageBox.Show(this, Strings.InboxFolderRefused, Strings.AppName, MessageBoxButton.OK, MessageBoxImage.Information);
-                return;
+                await Task.Run(() => CaptureLibrary.ChangeFolder(dialog.FolderName));
+                Changed(); _inbox.Text = Inbox.Folder;
             }
-            s.InboxFolder = dialog.FolderName; Changed(); _inbox.Text = Inbox.Folder;
+            catch (Exception e) { Log.Error($"Library folder change failed: {e.Message}"); MessageBox.Show(this, Strings.FolderChangeFailed, Strings.AppName, MessageBoxButton.OK, MessageBoxImage.Error); }
+            finally { change.IsEnabled = true; }
         };
         inboxRow.Children.Add(change);
         _inbox = new TextBlock { Text = Inbox.Folder, TextTrimming = TextTrimming.CharacterEllipsis, Opacity = 0.7, FlowDirection = FlowDirection.LeftToRight, HorizontalAlignment = Strings.IsRtl ? HorizontalAlignment.Right : HorizontalAlignment.Left };
@@ -191,6 +192,10 @@ public sealed class SettingsWindow : Window
         inboxLabel.Children.Add(_inbox);
         inboxRow.Children.Add(inboxLabel);
         stack.Children.Add(inboxRow);
+        stack.Children.Add(new TextBlock { Text = Strings.CaptureFolderHint, TextWrapping = TextWrapping.Wrap, FontSize = 12, Margin = new Thickness(0, 6, 0, 8) });
+        var openLibrary = new Button { Content = Strings.LibraryOpen, Padding = new Thickness(12, 5, 12, 5), HorizontalAlignment = HorizontalAlignment.Left };
+        openLibrary.Click += (_, _) => Shell.OpenFolder(Inbox.Folder);
+        stack.Children.Add(openLibrary);
 
         stack.Children.Add(new TextBlock { Text = Strings.WatchFoldersLabel, Margin = new Thickness(0, 12, 0, 4) });
         _folders = new ListBox { Height = 84, Margin = new Thickness(0, 0, 0, 6), FlowDirection = FlowDirection.LeftToRight };

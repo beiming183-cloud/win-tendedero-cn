@@ -16,7 +16,7 @@ public static class Theme
 
     private static bool? _override;
 
-    public static void Override(bool dark) { _override = dark; AppsDark = SystemDark = dark; Apply(); }
+    public static void Override(bool dark) { bool changed = AppsDark != dark; _override = dark; AppsDark = SystemDark = dark; Apply(); if (changed) Changed?.Invoke(); }
 
     /// <summary>Follows the Appearance setting: auto, light or dark.</summary>
     public static void ApplySetting()
@@ -41,8 +41,7 @@ public static class Theme
     {
         bool a = AppsDark, s = SystemDark;
         Read();
-        Apply();
-        if (a != AppsDark || s != SystemDark) Changed?.Invoke();
+        if (a != AppsDark || s != SystemDark) { Apply(); Changed?.Invoke(); }
     }
 
     public static Color Rgba(double r, double g, double b, double a) =>
