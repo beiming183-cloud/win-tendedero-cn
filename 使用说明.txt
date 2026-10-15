@@ -1,0 +1,15 @@
+win-tendedero · Windows 简体中文版
+
+解压整个文件夹，双击 win-tendedero.exe。
+程序位于任务栏通知区域，右键图标打开“设置”或“退出 win-tendedero”。
+
+默认 Ctrl+Alt+T 显示或收起晾衣绳；若组合键被占用，可在设置中换键。
+Win+Shift+S 截图后，程序可自动捕获并挂到屏幕顶部。
+单击截图复制，长按标注，双击打开；拖到应用中可分享副本。
+
+自包含 Windows x64 便携版，无需单独安装 .NET 运行库。
+设置保存在 %LOCALAPPDATA%\win-tendedero。
+首次使用会复制导入已有 Snapline / Clothesline 的配置，原目录和截图保留。
+
+源码与更新：https://github.com/beiming183-cloud/win-tendedero-cn
+来源与原作者署名见 THIRD-PARTY-NOTICES.md；随包包含 MIT 和字体许可。
