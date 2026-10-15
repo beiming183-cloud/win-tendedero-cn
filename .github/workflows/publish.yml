@@ -1,0 +1,39 @@
+name: Publish verified portable build
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_run_id:
+        description: Successful Windows portable build run ID
+        required: true
+        type: string
+      release_tag:
+        description: Existing draft release tag
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download successful Windows build
+        uses: actions/download-artifact@v4
+        with:
+          name: win-tendedero-windows-x64
+          run-id: ${{ inputs.build_run_id }}
+          github-token: ${{ github.token }}
+          path: release
+      - name: Verify and publish portable files
+        working-directory: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          sha256sum --check SHA256SUMS.txt
+          gh release upload "$RELEASE_TAG" win-tendedero-v*-windows-x64.zip SHA256SUMS.txt --clobber
+          gh release edit "$RELEASE_TAG" --draft=false --latest
