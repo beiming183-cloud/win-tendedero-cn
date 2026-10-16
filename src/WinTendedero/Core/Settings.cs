@@ -89,6 +89,11 @@ public sealed class Settings
     public string RopeColor { get; set; } = "gray";
     /// <summary>wood, metal, mixed, red, blue, green or yellow.</summary>
     public string PegStyle { get; set; } = "metal";
+    public string CardMaterial { get; set; } = "glass";
+    public string AccentColor { get; set; } = "#6C91B8";
+    public string RopeMaterial { get; set; } = "thread";
+    public double Elasticity { get; set; } = 0.65;
+    public string ArrivalEffect { get; set; } = "bounce";
     public bool Bows { get; set; } = false;
     /// <summary>Spread the photos evenly along the line. Off, each stays where you put it.</summary>
     public bool AutoArrange { get; set; }
@@ -132,6 +137,7 @@ public sealed class Settings
                     loaded.LibraryInitialized = true;
                 }
                 loaded.CardScale = double.IsFinite(loaded.CardScale) ? Math.Clamp(loaded.CardScale, 1, 2) : 1.4;
+                loaded.Elasticity = double.IsFinite(loaded.Elasticity) ? Math.Clamp(loaded.Elasticity, 0, 1) : 0.65;
                 // Paths are matched regardless of case; the deserializer forgets that.
                 loaded.Spots = new Dictionary<string, double>(loaded.Spots, StringComparer.OrdinalIgnoreCase);
                 loaded.Notes = new Dictionary<string, NoteData>(loaded.Notes, StringComparer.OrdinalIgnoreCase);

@@ -32,7 +32,7 @@ public static class Pegs
         return RopeColorOf(key);
     }
 
-    public static Color RopeColorOf(string key) => key switch
+    public static Color RopeColorOf(string key) => key.StartsWith('#') ? Surfaces.ColorOf(key) : key switch
     {
         "gray" => Theme.Gray(0.55),
         "black" => Theme.Gray(0.12),

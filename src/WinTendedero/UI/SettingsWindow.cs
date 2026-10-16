@@ -11,7 +11,7 @@ using WinTendedero.Interop;
 namespace WinTendedero.UI;
 
 /// <summary>Everything you can change, on one page. Changes apply as you make them.</summary>
-public sealed class SettingsWindow : Window
+public sealed partial class SettingsWindow : Window
 {
     private static SettingsWindow? _open;
     private readonly Action _apply;
@@ -144,11 +144,22 @@ public sealed class SettingsWindow : Window
 
         // Look
         stack.Children.Add(Heading(Strings.SectionLook));
+        stack.Children.Add(BuildLooks());
         var rope = new ComboBox { Width = 200, HorizontalAlignment = HorizontalAlignment.Left };
         foreach (var key in Pegs.RopeColors) rope.Items.Add(ColorItem(key));
-        rope.SelectedIndex = Math.Max(0, Array.IndexOf(Pegs.RopeColors, s.RopeColor));
-        rope.SelectionChanged += (_, _) => { if (rope.SelectedIndex >= 0) { s.RopeColor = Pegs.RopeColors[rope.SelectedIndex]; Changed(); } };
-        stack.Children.Add(Row(Strings.RopeColor, rope));
+        if(s.RopeColor.StartsWith('#')){rope.Items.Add(ColorItem(s.RopeColor));rope.SelectedIndex=Pegs.RopeColors.Length;}
+        else rope.SelectedIndex = Math.Max(0, Array.IndexOf(Pegs.RopeColors, s.RopeColor));
+        rope.SelectionChanged += (_, _) => { if (rope.SelectedIndex >= 0 && rope.SelectedIndex<Pegs.RopeColors.Length) { s.RopeColor = Pegs.RopeColors[rope.SelectedIndex]; Changed(); } };
+        var ropeRow=new StackPanel {Orientation=Orientation.Horizontal};ropeRow.Children.Add(rope);
+        var chooseRope=new Button {Content=Strings.CustomColor,Margin=new Thickness(8,0,0,0),Padding=new Thickness(8,2,8,2)};
+        chooseRope.Click+=(_,_)=>SelectColor(Pegs.Rope(),hex=>
+        {
+            s.RopeColor=hex;
+            if(rope.Items.Count>Pegs.RopeColors.Length)rope.Items.RemoveAt(Pegs.RopeColors.Length);
+            rope.Items.Add(ColorItem(hex));rope.SelectedIndex=Pegs.RopeColors.Length;Changed();
+        });
+        ropeRow.Children.Add(chooseRope);
+        stack.Children.Add(Row(Strings.RopeColor, ropeRow));
 
         var pegs = new ComboBox { Width = 200, HorizontalAlignment = HorizontalAlignment.Left };
         foreach (var key in Pegs.Styles) pegs.Items.Add(PegItem(key));

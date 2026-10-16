@@ -175,6 +175,10 @@ public sealed class LineCanvas : Canvas
     private void PaintRope()
     {
         var color = Pegs.Rope();
+        string material = Settings.Current.RopeMaterial;
+        _ropeCore.StrokeThickness = material == "cotton" ? 3.0 : material == "wire" ? 2.2 : 1.6;
+        _ropeHighlight.StrokeThickness = material == "cotton" ? 1.2 : .5;
+        _ropeHighlight.StrokeDashArray = material == "cotton" ? new DoubleCollection { 1.5, 2 } : null;
         _ropeCore.Stroke = Theme.Freeze(new SolidColorBrush(color));
         _ropeHighlight.Stroke = Theme.Freeze(new SolidColorBrush(Pegs.Lighten(color, 0.55)));
         _ropeHighlight.Opacity = 0.7;
@@ -209,6 +213,8 @@ public sealed class LineCanvas : Canvas
                 // Tucked away, the whole line waits above the top edge and slides
                 // out from under the taskbar, the way an auto-hiding taskbar does.
                 _revealSpring.Value = _reveal.Y;
+                var feel = MotionFeel.Spring(.38);
+                _revealSpring.Stiffness=feel.Stiffness;_revealSpring.Damping=feel.Damping;
                 _revealSpring.Velocity = 0;
                 _revealSpring.Target = 0;
                 _usingSpring = true;
@@ -366,12 +372,12 @@ public sealed class LineCanvas : Canvas
     }
 
     /// <summary>The held card follows the pointer; the others make room.</summary>
-    public void ReorderTo(PeggedControl card, double centerX)
+    public void ReorderTo(PeggedControl card, double centerX, double pullY=0,double velocity=0)
     {
         if (_held != card) return;
         double half = Layout.CardWidth / 2;
         centerX = Math.Clamp(centerX, half, Math.Max(half, _width - half));
-        card.SetTargetX(centerX, snap: true);
+        card.FollowDrag(centerX,pullY,velocity);
         if (!Settings.Current.AutoArrange)
         {
             // It stays where you put it; nothing else moves.
@@ -390,7 +396,8 @@ public sealed class LineCanvas : Canvas
             double d = Math.Abs(centerX - Layout.X(i, live.Count, _width));
             if (d < best) { best = d; to = i; }
         }
-        if (to != from) _line.Move(card.Item.Id, _page * Layout.PageSize(_width) + to);
+        if (to != from && Math.Abs(centerX-Layout.X(from,live.Count,_width))>Math.Abs(Layout.X(to,live.Count,_width)-Layout.X(from,live.Count,_width))*.55)
+            _line.Move(card.Item.Id, _page * Layout.PageSize(_width) + to);
         StartTicking();
     }
 
@@ -398,6 +405,7 @@ public sealed class LineCanvas : Canvas
     {
         if (_held != card) return;
         _held = null;
+        card.ReleaseDrag();
         // The last one moved lies on top of any it was dropped against.
         SetZIndex(card, Settings.Current.AutoArrange ? 2 : ++_topZ);
         if (!Settings.Current.AutoArrange) _line.SetSpot(card.Item.Id, card.TargetX / _width, save: true);

@@ -19,6 +19,9 @@ public sealed class LineWindow : Window
     public IntPtr Handle { get; private set; }
     private HwndSource? _source;
     private double _ropeStartOffset, _ropeStartY;
+    private readonly Spring _ropeSpring=MotionFeel.Spring(.28);
+    private bool _ropeReturning;
+    private double _shownOffset;
     private readonly System.Windows.Threading.DispatcherTimer _ropeFollow = new() { Interval = TimeSpan.FromMilliseconds(16) };
 
     /// <summary>While a drag or a press is in progress the whole strip stays solid, so events keep coming.</summary>
@@ -58,19 +61,36 @@ public sealed class LineWindow : Window
         Canvas.RopeDragStarted += () =>
         {
             _ropeStartOffset = Settings.Current.LineOffset;
+            var feel=MotionFeel.Spring(.28);_ropeSpring.Stiffness=feel.Stiffness;_ropeSpring.Damping=feel.Damping;
+            _ropeReturning=false;
             _ropeStartY = Displays.Cursor().Y;
             _ropeFollow.Start();
         };
         _ropeFollow.Tick += (_, _) =>
         {
             if (Display is null) return;
+            if (_ropeReturning)
+            {
+                _ropeSpring.Step(.016);
+                MoveOffset(_ropeSpring.Value);
+                if(_ropeSpring.Resting) _ropeFollow.Stop();
+                return;
+            }
             double dy = (Displays.Cursor().Y - _ropeStartY) / Display.Scale;
-            double offset = Math.Max(0, _ropeStartOffset + dy);
-            if (Math.Abs(offset - Settings.Current.LineOffset) < 0.5) return;
+            double raw=_ropeStartOffset+dy;
+            double maximum=Math.Max(0,Display.Work.Height/Display.Scale-Layout.PanelHeight);
+            double offset = Math.Clamp(raw,0,maximum);
             Settings.Current.LineOffset = offset;
-            PlaceOn(Display);
+            double excess=raw-offset;
+            MoveOffset(offset+excess/(1+Math.Abs(excess)/30)*.40*MotionFeel.Amount);
         };
-        Canvas.RopeDragEnded += () => { _ropeFollow.Stop(); Settings.Current.Save(); };
+        Canvas.RopeDragEnded += () =>
+        {
+            _ropeReturning=true;
+            _ropeSpring.Snap(_shownOffset);_ropeSpring.Target=Settings.Current.LineOffset;
+            if(MotionFeel.Amount==0){MoveOffset(Settings.Current.LineOffset);_ropeFollow.Stop();}
+            Settings.Current.Save();
+        };
         SnapsToDevicePixels = false;
         UseLayoutRounding = false;
         TextOptions.SetTextFormattingMode(this, TextFormattingMode.Ideal);
@@ -147,6 +167,7 @@ public sealed class LineWindow : Window
         // The line can hang lower than the very top, below the tabs of a maximised window.
         double maxOffset = Math.Max(0, work.Height / m.Scale - Layout.PanelHeight);
         double offset = Math.Clamp(Settings.Current.LineOffset, 0, maxOffset);
+        _shownOffset=offset;
         Settings.Current.LineOffset = offset;
         int top = work.Top + (int)Math.Round(offset * m.Scale);
         if (Handle == IntPtr.Zero)
@@ -160,8 +181,15 @@ public sealed class LineWindow : Window
         // frame first. Say it again, now that the DPI has settled.
         if (GetWindowRect(Handle, out var r) && (r.Left != work.Left || r.Top != top || r.Width != work.Width || r.Height != height))
             SetWindowPos(Handle, IntPtr.Zero, work.Left, top, work.Width, height, flags);
-        Canvas.Width = work.Width / m.Scale;
-        Canvas.UpdateLayout();
+        double width=work.Width/m.Scale;
+        if(Math.Abs(Canvas.Width-width)>.1 || double.IsNaN(Canvas.Width)) {Canvas.Width=width;Canvas.UpdateLayout();}
+    }
+
+    private void MoveOffset(double offset)
+    {
+        if(Display is null || Handle==IntPtr.Zero) return;
+        _shownOffset=offset;
+        SetWindowPos(Handle,IntPtr.Zero,Display.Work.Left,Display.Work.Top+(int)Math.Round(offset*Display.Scale),0,0,SWP_NOSIZE|SWP_NOZORDER|SWP_NOACTIVATE);
     }
 
     public void OrderFront()

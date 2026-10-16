@@ -89,13 +89,13 @@ public sealed class FlightWindow : Window
         Content = _canvas;
 
         _shadow = new DropShadowEffect { Color = Colors.Black, Opacity = 0.24, BlurRadius = 20, ShadowDepth = 5, Direction = 270 };
-        _glass = new Border { Background = Theme.Freeze(new SolidColorBrush(Theme.GlassFill)), Effect = _shadow };
+        _glass = new Border { Background = Surfaces.Fill(Core.Settings.Current.CardMaterial,Core.Settings.Current.AccentColor,Theme.AppsDark), Effect = _shadow };
         _photo = new Image { Source = image, Stretch = Stretch.Fill };
         RenderOptions.SetBitmapScalingMode(_photo, BitmapScalingMode.HighQuality);
         _edge = new Border
         {
             BorderThickness = new Thickness(0.75),
-            BorderBrush = Theme.Freeze(new LinearGradientBrush(Theme.GlassEdgeTop, Theme.GlassEdgeBottom, 90)),
+            BorderBrush = Surfaces.Edge,
         };
         _clip = Pegs.Create(seed: seed, pinned: false);
         _clip.HorizontalAlignment = HorizontalAlignment.Left;

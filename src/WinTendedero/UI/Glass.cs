@@ -18,7 +18,7 @@ public static class Glass
             BorderThickness = new Thickness(0.75),
             SnapsToDevicePixels = false,
         };
-        Paint(b);
+        Surfaces.PaintFrame(b);
         return b;
     }
 
@@ -35,7 +35,7 @@ public static class Glass
         {
             CornerRadius = new CornerRadius(radius + 0.5),
             BorderThickness = new Thickness(0.5),
-            BorderBrush = Theme.Freeze(new SolidColorBrush(Theme.GlassOutline)),
+            BorderBrush = Surfaces.Edge,
             Margin = new Thickness(-0.5),
             IsHitTestVisible = false,
         };

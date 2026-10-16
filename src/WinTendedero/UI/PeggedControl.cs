@@ -19,14 +19,29 @@ namespace WinTendedero.UI;
 public sealed class PeggedControl : Canvas
 {
     public Pegged Item { get; }
+    protected override System.Windows.Automation.Peers.AutomationPeer OnCreateAutomationPeer() => new CardPeer(this);
+    private sealed class CardPeer(PeggedControl owner):System.Windows.Automation.Peers.FrameworkElementAutomationPeer(owner)
+    {
+        protected override string GetNameCore()=>System.IO.Path.GetFileName(owner.Item.Path);
+        protected override string GetAutomationIdCore()=>"Capture_"+owner.Item.Id;
+        protected override System.Windows.Automation.Peers.AutomationControlType GetAutomationControlTypeCore()=>System.Windows.Automation.Peers.AutomationControlType.Group;
+        protected override Rect GetBoundingRectangleCore()
+        {
+            if(PresentationSource.FromVisual(owner) is not { } source)return Rect.Empty;
+            var center=owner.PointToScreen(new Point(Layout.CardWidth/2,Layout.CardOffsetBelowTop+owner._cardSize.Height/2));
+            var scale=source.CompositionTarget.TransformToDevice.M11;
+            return new Rect(center.X-owner._cardSize.Width*scale/2,center.Y-owner._cardSize.Height*scale/2,owner._cardSize.Width*scale,owner._cardSize.Height*scale);
+        }
+    }
     private readonly Line _line;
 
     // Motion
-    private readonly Spring _swing = Spring.Raw(64, 12);                       // settles promptly
-    private readonly Spring _arrive = Spring.FromResponse(0.42, 0.72, -46);     // y offset while dropping in
-    private readonly Spring _hoverScale = Spring.FromResponse(0.3, 0.6, 1);
+    private readonly Spring _swing = Spring.Raw(80, 18-9*MotionFeel.Amount);
+    private readonly Spring _arrive = MotionFeel.Spring(.36, -36);
+    private readonly Spring _hoverScale = MotionFeel.Spring(.28, 1);
+    private readonly Spring _pull = MotionFeel.Spring(.30);
     private readonly Tween _pressScale = new(1);
-    private readonly Spring _x = Spring.FromResponse(0.55, 0.78);               // centre x on the canvas
+    private readonly Spring _x = MotionFeel.Spring(.38);
     private readonly Tween _opacity = new(0);
     private readonly Tween _cardOpacity = new(1);
     private readonly Tween _crossOpacity = new(0);
@@ -52,6 +67,7 @@ public sealed class PeggedControl : Canvas
     private bool _reordering;
     private double _grabOffsetX;
     private Point _downInCanvas;
+    private double _dragTime, _lastDragX, _dragVelocity;
     private readonly TextBlock _copiedText;
     private readonly TextBlock _tipName = new();
     private readonly TextBlock _tipMeta = new();
@@ -59,14 +75,14 @@ public sealed class PeggedControl : Canvas
 
     // Input
     private Point? _downPoint;
-    private bool _startedDrag, _didLongPress, _hovering;
+    private bool _startedDrag, _didLongPress, _hovering, _gestureMoved;
     private readonly DispatcherTimer _holdTimer;
     private static readonly TimeSpan HoldDuration = TimeSpan.FromMilliseconds(450);
 
     public bool Hovering => _hovering;
     public bool Reordering => _reordering;
     public bool Active => !_swing.Resting || !_arrive.Resting || !_hoverScale.Resting || !_pressScale.Done || !_x.Resting
-                          || !_opacity.Done || !_cardOpacity.Done || !_crossOpacity.Done || !_copiedOpacity.Done || !_shadow.Done;
+                          || !_opacity.Done || !_cardOpacity.Done || !_crossOpacity.Done || !_copiedOpacity.Done || !_shadow.Done || !_pull.Resting;
 
     public PeggedControl(Pegged item, Line line)
     {
@@ -115,7 +131,7 @@ public sealed class PeggedControl : Canvas
         var photoEdge = new Border
         {
             Margin = new Thickness(Layout.FrameInset),
-            CornerRadius = new CornerRadius(Layout.FrameRadius - Layout.FrameInset),
+            CornerRadius = new CornerRadius(Math.Max(0,Layout.FrameRadius - Layout.FrameInset)),
             BorderThickness = new Thickness(0.5),
             BorderBrush = Theme.Freeze(new SolidColorBrush(Theme.PhotoEdge)),
             IsHitTestVisible = false,
@@ -239,7 +255,7 @@ public sealed class PeggedControl : Canvas
     private void ApplyPhotoClip()
     {
         var photo = Layout.PhotoSize(Item.PixelWidth, Item.PixelHeight);
-        double r = Layout.FrameRadius - Layout.FrameInset;
+        double r = Math.Max(0,Layout.FrameRadius - Layout.FrameInset);
         if (Notes.IsNote(Item.Path)) { _image.Clip = null; return; }
         _image.Clip = new RectangleGeometry(new Rect(0, 0, photo.Width, photo.Height), r, r);
     }
@@ -305,6 +321,24 @@ public sealed class PeggedControl : Canvas
         if (snap) _x.Snap(centerX); else _x.Target = centerX;
     }
 
+    internal void FollowDrag(double centerX, double pullY, double velocity)
+    {
+        _dragVelocity=velocity;
+        _x.Snap(centerX);
+        _pull.Target = Math.Clamp(pullY*.45,-18,38);
+        _swing.Target = Math.Clamp(-velocity*.003,-8,8)*MotionFeel.Amount;
+        _hoverScale.Target = 1.045;
+        Tick(0); // The held card reaches the pointer in the input event, before the next frame.
+    }
+
+    internal void ReleaseDrag()
+    {
+        _pull.Target=0;_swing.Target=0;
+        _x.Velocity=Math.Clamp(_dragVelocity*.045,-65,65)*MotionFeel.Amount;
+        _swing.Velocity+=Math.Clamp(_dragVelocity*.01,-12,12)*MotionFeel.Amount;
+        _hoverScale.Target=Hovering?1.035:1;
+    }
+
     public double CenterX => _x.Value;
     public double TargetX => _x.Target;
     /// <summary>The rope sags, so the card follows it up and down as it moves along.</summary>
@@ -336,7 +370,7 @@ public sealed class PeggedControl : Canvas
             _opacity.Snap(0);
             return;
         }
-        _swing.Snap(SystemParameters.ClientAreaAnimation ? 5 : 0);
+        _swing.Snap(2+5*MotionFeel.Amount);
         _swing.Target = 0;
         _arrive.Target = 0;
         _opacity.Go(1, 0.28, Ease.OutQuad);
@@ -363,7 +397,7 @@ public sealed class PeggedControl : Canvas
     private void Nudge(double degrees)
     {
         // A push, then the spring brings it back and lets it swing.
-        _swing.Velocity += degrees * 7.5;
+        _swing.Velocity += degrees * (2+6*MotionFeel.Amount);
         _swing.Target = 0;
     }
 
@@ -400,7 +434,7 @@ public sealed class PeggedControl : Canvas
     /// <summary>Advances every spring and tween by `dt` seconds and applies them.</summary>
     public void Tick(double dt)
     {
-        _swing.Step(dt); _arrive.Step(dt); _hoverScale.Step(dt); _pressScale.Step(dt); _x.Step(dt);
+        _swing.Step(dt); _arrive.Step(dt); _hoverScale.Step(dt); _pressScale.Step(dt); _x.Step(dt); _pull.Step(dt);
         _opacity.Step(dt); _cardOpacity.Step(dt); _crossOpacity.Step(dt); _crossScale.Step(dt);
         _copiedOpacity.Step(dt); _copiedOffset.Step(dt); _shadow.Step(dt);
 
@@ -411,7 +445,7 @@ public sealed class PeggedControl : Canvas
             _position.Y = ropeY - Layout.PinAbove - GetTop(this);
         }
         _rotate.Angle = _swing.Value + Item.Tilt;
-        _drop.Y = _arrive.Value;
+        _drop.Y = _arrive.Value + _pull.Value;
         Opacity = Item.Falling || Item.Flying ? 0 : _opacity.Value;
 
         double scale = _hoverScale.Value * _pressScale.Value;
@@ -419,7 +453,7 @@ public sealed class PeggedControl : Canvas
         _cardHost.Opacity = _cardOpacity.Value;
 
         double s = _shadow.Value;
-        _shadowEffect.Opacity = 0.14 + 0.06 * s;
+        _shadowEffect.Opacity = Surfaces.Shadow + 0.06 * s;
         _shadowEffect.BlurRadius = 12;
         _shadowEffect.ShadowDepth = 3 + 2 * s;
 
@@ -445,7 +479,9 @@ public sealed class PeggedControl : Canvas
         _downPoint = e.GetPosition(this);
         _downInCanvas = Parent is UIElement parent ? e.GetPosition(parent) : _downPoint.Value;
         _grabOffsetX = _downInCanvas.X - CenterX;
+        _lastDragX=_downInCanvas.X;_dragTime=System.Diagnostics.Stopwatch.GetTimestamp()/(double)System.Diagnostics.Stopwatch.Frequency;_dragVelocity=0;
         _startedDrag = false;
+        _gestureMoved = false;
         _reordering = false;
         _didLongPress = false;
         _cardHost.CaptureMouse();
@@ -466,11 +502,14 @@ public sealed class PeggedControl : Canvas
         var canvas = Parent as LineCanvas;
         var p = canvas is not null ? e.GetPosition(canvas) : e.GetPosition(this);
         double dx = p.X - _downInCanvas.X, dy = p.Y - _downInCanvas.Y;
+        double now=System.Diagnostics.Stopwatch.GetTimestamp()/(double)System.Diagnostics.Stopwatch.Frequency;
+        double elapsed=now-_dragTime;
+        if(elapsed>0.001){_dragVelocity=Math.Clamp((p.X-_lastDragX)/elapsed,-2200,2200);_dragTime=now;_lastDragX=p.X;}
 
         if (_reordering)
         {
             // Pulled away from the line: it becomes a real drag into another app.
-            if (Math.Abs(dy) > 44)
+            if (Math.Abs(dy)>MotionFeel.PullThreshold(_cardSize.Height))
             {
                 _reordering = false;
                 canvas?.EndReorder(this);
@@ -479,20 +518,22 @@ public sealed class PeggedControl : Canvas
                 StartDrag(e.GetPosition(_cardHost));
                 return;
             }
-            canvas?.ReorderTo(this, p.X - _grabOffsetX);
+            canvas?.ReorderTo(this, p.X - _grabOffsetX,dy,_dragVelocity);
             return;
         }
 
         if (Math.Abs(dx) < 4 && Math.Abs(dy) < 4) return;
+        _gestureMoved=true;
         EndPress();
-        if (canvas is not null && Math.Abs(dy) <= 44)
+        if (canvas is not null && Math.Abs(dx)>=Math.Abs(dy)*.75 && !MotionFeel.PullsOut(dx,dy,_cardSize.Height))
         {
             // Sliding along the line reorders the photos.
             _reordering = true;
             canvas.BeginReorder(this);
-            canvas.ReorderTo(this, p.X - _grabOffsetX);
+            canvas.ReorderTo(this, p.X - _grabOffsetX,dy,_dragVelocity);
             return;
         }
+        if (!MotionFeel.PullsOut(dx,dy,_cardSize.Height)) return;
         _startedDrag = true;
         _cardHost.ReleaseMouseCapture();
         StartDrag(e.GetPosition(_cardHost));
@@ -501,7 +542,7 @@ public sealed class PeggedControl : Canvas
     private void OnMouseUp(object sender, MouseButtonEventArgs e)
     {
         e.Handled = true;
-        bool click = _downPoint is not null && !_startedDrag && !_didLongPress && !_reordering;
+        bool click = _downPoint is not null && !_gestureMoved && !_startedDrag && !_didLongPress && !_reordering;
         EndPress();
         _cardHost.ReleaseMouseCapture();
         if (_reordering) { _reordering = false; (Parent as LineCanvas)?.EndReorder(this); }
@@ -647,9 +688,9 @@ public sealed class PeggedControl : Canvas
         {
             dc.PushTransform(new TranslateTransform(pad, pad));
             var frame = new Rect(0, 0, w, h);
-            dc.DrawRoundedRectangle(new SolidColorBrush(Theme.GlassFill), new Pen(new SolidColorBrush(Theme.GlassOutline), 0.5), frame, Layout.FrameRadius, Layout.FrameRadius);
+            dc.DrawRoundedRectangle(Surfaces.Fill(Settings.Current.CardMaterial,Settings.Current.AccentColor,Theme.AppsDark), new Pen(Surfaces.Edge, 0.5), frame, Layout.FrameRadius, Layout.FrameRadius);
             var photo = new Rect(Layout.FrameInset, Layout.FrameInset, w - 2 * Layout.FrameInset, h - 2 * Layout.FrameInset);
-            double r = Layout.FrameRadius - Layout.FrameInset;
+            double r = Math.Max(0,Layout.FrameRadius - Layout.FrameInset);
             dc.PushClip(new RectangleGeometry(photo, r, r));
             dc.DrawImage(Item.Thumb, photo);
             dc.Pop();

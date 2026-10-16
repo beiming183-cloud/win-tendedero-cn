@@ -16,8 +16,8 @@ public static class Layout
     public const double PinWidth = 9;
     /// <summary>Distance from the top of the hanging view (the clip) to the card.</summary>
     public const double CardOffsetBelowTop = PinHeight - 12;
-    public const double FrameRadius = 12;
-    public const double FrameInset = 3;
+    public static double FrameRadius => Surfaces.Radius;
+    public static double FrameInset => Surfaces.Inset;
     public static double PhotoMaxHeight => 118 * Scale;
 
     public static int PageSize(double width) => Math.Max(1, (int)((width - 160) / Spacing));

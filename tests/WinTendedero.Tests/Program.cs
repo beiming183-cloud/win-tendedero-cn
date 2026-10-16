@@ -23,12 +23,14 @@ internal static class Tests
         var data = Path.Combine(root, "profile");
         Directory.CreateDirectory(data);
         Environment.SetEnvironmentVariable("WIN_TENDEDERO_DATA_DIR", data);
+        SynchronizationContext.SetSynchronizationContext(new System.Windows.Threading.DispatcherSynchronizationContext(System.Windows.Threading.Dispatcher.CurrentDispatcher));
         File.WriteAllText(Path.Combine(data, "settings.json"), """{"revealDelay":0.5,"language":"zh","soundOn":false,"welcomed":true,"hotKey":"Ctrl+Alt+T"}""");
         try
         {
             Run(root);
             LibraryChecks.Run(root, Check);
             WatcherChecks.Run(root, Check);
+            LooksChecks.Run(root, Check);
             Console.WriteLine($"PASS: {_checks} activation, native shortcut, library, session, pagination and watcher checks.");
             return 0;
         }

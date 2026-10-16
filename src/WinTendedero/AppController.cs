@@ -185,8 +185,9 @@ public sealed class AppController : IDisposable
             var from = CaptureRect.Infer(thumb.PixelWidth, thumb.PixelHeight);
             if (from is not null) _pendingMonitor = from.Value.monitor;
             // Reuse the already decoded thumbnail for the arrival, keeping full-size images off the UI thread.
-            var id = _line.Hang(result.saved, flying: from is not null && SystemParameters.ClientAreaAnimation, preloaded: thumb);
-            if (id is null || from is null || !SystemParameters.ClientAreaAnimation) return;
+            bool flies=Settings.Current.ArrivalEffect=="flight" && SystemParameters.ClientAreaAnimation && from is not null;
+            var id = _line.Hang(result.saved, flying: flies, preloaded: thumb);
+            if (id is null || from is null || !flies) return;
             Later(0.03, () => Fly(id.Value, from.Value.rect, from.Value.monitor));
         }
         catch (Exception e) { Log.Error($"Could not archive capture: {e.Message}"); _tray.Balloon(Strings.AppName, "截图保存失败，请检查保存位置和磁盘空间。原文件仍在原位置。"); }
@@ -486,7 +487,7 @@ public sealed class AppController : IDisposable
 
     // MARK: Menu
 
-    private static string VisualSettings() => $"{Settings.Current.RopeColor}|{Settings.Current.PegStyle}|{Settings.Current.Bows}|{Settings.Current.CardScale}|{Settings.Current.AutoArrange}";
+    private static string VisualSettings() => $"{Settings.Current.RopeColor}|{Settings.Current.PegStyle}|{Settings.Current.Bows}|{Settings.Current.CardScale}|{Settings.Current.AutoArrange}|{Settings.Current.CardMaterial}|{Settings.Current.AccentColor}|{Settings.Current.RopeMaterial}|{Settings.Current.Elasticity}";
 
     private ContextMenu BuildMenu()
     {
