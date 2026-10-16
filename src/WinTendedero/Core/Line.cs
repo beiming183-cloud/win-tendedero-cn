@@ -13,7 +13,11 @@ public sealed class Pegged
 
     public Guid Id { get; } = Guid.NewGuid();
     public string Path { get; internal set; }
-    public BitmapSource Thumb { get; set; }
+    private BitmapSource? _thumb;
+    public BitmapSource Thumb { get => _thumb ?? Thumbnails.Empty; set => _thumb = value; }
+    internal bool HasThumbnail => _thumb is not null;
+    internal int ThumbnailRevision { get; private set; }
+    internal void ReleaseThumbnail() { _thumb = null; ThumbnailRevision++; }
     public int PixelWidth { get; set; }
     public int PixelHeight { get; set; }
     /// <summary>Every photo hangs a little crooked, like on a real line.</summary>
@@ -49,6 +53,45 @@ public sealed class Line
     private readonly Random _rng = new();
 
     public IReadOnlyList<Pegged> Items => _items;
+    internal int RetainedThumbnailCount => _items.Count(item => item.HasThumbnail);
+    private HashSet<Guid> _thumbnailWindow = new();
+    private readonly HashSet<Guid> _thumbnailLoading = new();
+    private readonly SemaphoreSlim _thumbnailGate = new(1, 1);
+
+    public void SetThumbnailWindow(IEnumerable<Pegged> items)
+    {
+        _thumbnailWindow = items.Select(item => item.Id).ToHashSet();
+        foreach (var item in _items)
+        {
+            if (!_thumbnailWindow.Contains(item.Id) && item.HasThumbnail && !item.Flying) item.ReleaseThumbnail();
+        }
+        foreach (var item in items)
+            if (!item.HasThumbnail) LoadThumbnail(item);
+    }
+
+    private async void LoadThumbnail(Pegged item)
+    {
+        if (!_thumbnailLoading.Add(item.Id)) return;
+        int revision = item.ThumbnailRevision;
+        await _thumbnailGate.WaitAsync();
+        try
+        {
+            if (item.Falling || !_thumbnailWindow.Contains(item.Id) || !_items.Contains(item)) return;
+            var thumb = await Task.Run(() => Thumbnails.Load(item.Path));
+            if (thumb is null || revision != item.ThumbnailRevision || item.Falling || !_thumbnailWindow.Contains(item.Id) || !_items.Contains(item)) return;
+            item.Thumb = thumb.Value.Image;
+            item.PixelWidth = thumb.Value.PixelWidth;
+            item.PixelHeight = thumb.Value.PixelHeight;
+            ItemUpdated?.Invoke(item);
+        }
+        catch (Exception e) { Log.Error($"Could not load page thumbnail: {e.Message}"); }
+        finally
+        {
+            _thumbnailGate.Release();
+            _thumbnailLoading.Remove(item.Id);
+            if (revision != item.ThumbnailRevision && !item.HasThumbnail && !item.Falling && _thumbnailWindow.Contains(item.Id)) LoadThumbnail(item);
+        }
+    }
 
     /// <summary>The list changed: something hung, fell or was removed.</summary>
     public event Action? ItemsChanged;
@@ -122,6 +165,7 @@ public sealed class Line
         var item = Find(id);
         if (item is null || !item.Flying) return;
         item.Flying = false;
+        if (!_thumbnailWindow.Contains(item.Id)) item.ReleaseThumbnail();
         ItemUpdated?.Invoke(item);
     }
 
@@ -337,16 +381,12 @@ public sealed class Line
     }
 
     /// <summary>After editing, the photo on the line shows the new version.</summary>
-    public async void ReloadThumbnail(string path)
+    public void ReloadThumbnail(string path)
     {
         var item = _items.FirstOrDefault(i => !i.Falling && string.Equals(i.Path, path, StringComparison.OrdinalIgnoreCase));
         if (item is null) return;
-        var thumb = await Task.Run(() => Thumbnails.Load(path));
-        if (thumb is null || item.Falling || !_items.Contains(item)) return;
-        item.Thumb = thumb.Value.Image;
-        item.PixelWidth = thumb.Value.PixelWidth;
-        item.PixelHeight = thumb.Value.PixelHeight;
-        ItemUpdated?.Invoke(item);
+        item.ReleaseThumbnail();
+        if (_thumbnailWindow.Contains(item.Id)) LoadThumbnail(item);
     }
 
     public void Reveal(Guid id)

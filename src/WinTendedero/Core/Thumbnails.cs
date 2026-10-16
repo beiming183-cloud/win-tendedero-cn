@@ -10,6 +10,13 @@ public readonly record struct Thumbnail(BitmapSource Image, int PixelWidth, int 
 /// <summary>Decodes screenshots down to the size the line needs, patiently if the file is still being written.</summary>
 public static class Thumbnails
 {
+    public static BitmapSource Empty { get; } = EmptyImage();
+    private static BitmapSource EmptyImage()
+    {
+        var image = BitmapSource.Create(1, 1, 96, 96, PixelFormats.Pbgra32, null, new byte[4], 4);
+        image.Freeze();
+        return image;
+    }
     public static readonly HashSet<string> ImageExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
         ".png", ".jpg", ".jpeg", ".bmp", ".gif", ".tif", ".tiff", ".webp", ".heic", ".avif",

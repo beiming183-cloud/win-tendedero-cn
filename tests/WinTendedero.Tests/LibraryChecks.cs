@@ -51,6 +51,7 @@ internal static class LibraryChecks
         var canvas = new LineCanvas(paged) { Width = 1440 };
         Arrange(canvas); canvas.RelayoutNow(); canvas.Revealed=true; canvas.Advance(2);
         check(paged.LiveCount == 24 && canvas.PageCount > 1 && canvas.Cards.Count > 1 && canvas.Cards.Count <= WinTendedero.UI.Layout.PageSize(1440), "24 captures retained with bounded visible controls");
+        check(paged.RetainedThumbnailCount <= WinTendedero.UI.Layout.PageSize(1440) * 3, "only current and neighboring pages retain decoded thumbnails");
         var visited = new HashSet<Guid>();
         canvas.ChangePage(-100);
         for(int n=0; n<canvas.PageCount; n++)
@@ -62,6 +63,8 @@ internal static class LibraryChecks
         canvas.ChangePage(100); check(canvas.PageIndex == canvas.PageCount-1, "last page boundary clamps");
         canvas.ChangePage(-100); check(canvas.PageIndex == 0, "first page boundary clamps");
         canvas.Advance(2);
+        WatcherChecks.PumpUntil(() => canvas.Cards.All(card => card.Item.HasThumbnail));
+        check(canvas.Cards.All(card => card.Item.Thumb.PixelWidth > 1), "returning to an evicted page reloads every visible thumbnail");
         var rects=canvas.HitRects().Select(h=>h.rect).OrderBy(r=>r.Left).ToArray();
         check(rects.All(r=>r.Left>=60 && r.Right<=1380) && rects.Zip(rects.Skip(1)).All(pair=>pair.First.Right < pair.Second.Left), "large cards fit without covering folder button or overlapping");
         check(canvas.LibraryRect is { } folder && !canvas.IsOverRope(new Point(folder.Left+8,folder.Top+8)), "folder has its own mouse hit area");

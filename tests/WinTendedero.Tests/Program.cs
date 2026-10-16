@@ -24,10 +24,15 @@ internal static class Tests
         Directory.CreateDirectory(data);
         Environment.SetEnvironmentVariable("WIN_TENDEDERO_DATA_DIR", data);
         File.WriteAllText(Path.Combine(data, "settings.json"), """{"revealDelay":0.5,"language":"zh","soundOn":false,"welcomed":true,"hotKey":"Ctrl+Alt+T"}""");
-        Run(root);
-        LibraryChecks.Run(root, Check);
-        Console.WriteLine($"PASS: {_checks} activation, native shortcut, library, session and pagination checks.");
-        return 0;
+        try
+        {
+            Run(root);
+            LibraryChecks.Run(root, Check);
+            WatcherChecks.Run(root, Check);
+            Console.WriteLine($"PASS: {_checks} activation, native shortcut, library, session, pagination and watcher checks.");
+            return 0;
+        }
+        catch (Exception e) { Console.Error.WriteLine(e); return 1; }
     }
 
     private static void Check(bool ok, string name)

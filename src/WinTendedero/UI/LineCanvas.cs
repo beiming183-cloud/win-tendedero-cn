@@ -235,6 +235,8 @@ public sealed class LineCanvas : Canvas
         }
         _page = Math.Clamp(_page, 0, Math.Max(0, PageCount - 1));
         var items = live.Skip(_page * Layout.PageSize(Math.Max(ActualWidth, 320))).Take(Layout.PageSize(Math.Max(ActualWidth, 320))).ToList();
+        int pageSize = Layout.PageSize(Math.Max(ActualWidth, 320));
+        _line.SetThumbnailWindow(live.Skip(Math.Max(0, _page - 1) * pageSize).Take((_page == 0 ? 2 : 3) * pageSize).ToArray());
         // Remove what is gone.
         foreach (var card in _cards.Where(c => !items.Contains(c.Item)).ToList())
         {

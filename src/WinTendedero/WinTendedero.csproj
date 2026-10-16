@@ -16,8 +16,8 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
-    <Version>1.8.0</Version>
-    <InformationalVersion>1.8.0-cn.1</InformationalVersion>
+    <Version>1.8.1</Version>
+    <InformationalVersion>1.8.1-cn.1</InformationalVersion>
     <Product>win-tendedero</Product>
     <Authors>beiming183-cloud</Authors>
     <Description>win-tendedero - Windows screenshot clothesline and capture library.</Description>
