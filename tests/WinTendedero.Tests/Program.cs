@@ -31,6 +31,7 @@ internal static class Tests
             LibraryChecks.Run(root, Check);
             WatcherChecks.Run(root, Check);
             LooksChecks.Run(root, Check);
+            FramesChecks.Run(root, Check);
             Console.WriteLine($"PASS: {_checks} activation, native shortcut, library, session, pagination and watcher checks.");
             return 0;
         }

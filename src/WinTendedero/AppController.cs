@@ -487,7 +487,7 @@ public sealed class AppController : IDisposable
 
     // MARK: Menu
 
-    private static string VisualSettings() => $"{Settings.Current.RopeColor}|{Settings.Current.PegStyle}|{Settings.Current.Bows}|{Settings.Current.CardScale}|{Settings.Current.AutoArrange}|{Settings.Current.CardMaterial}|{Settings.Current.AccentColor}|{Settings.Current.RopeMaterial}|{Settings.Current.Elasticity}";
+    private static string VisualSettings() => $"{Settings.Current.RopeColor}|{Settings.Current.PegStyle}|{Settings.Current.Bows}|{Settings.Current.CardScale}|{Settings.Current.AutoArrange}|{Settings.Current.CardMaterial}|{Settings.Current.AccentColor}|{Settings.Current.RopeMaterial}|{Settings.Current.Elasticity}|{Settings.Current.FrameStyle}|{Settings.Current.FrameWidth}|{Settings.Current.FramePadding}|{Settings.Current.FrameRoundness}";
 
     private ContextMenu BuildMenu()
     {

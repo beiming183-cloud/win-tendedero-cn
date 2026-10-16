@@ -24,7 +24,7 @@ public sealed class FlightWindow : Window
 
     private readonly Canvas _canvas = new();
     private readonly Grid _container = new();
-    private readonly Border _glass;
+    private readonly PhotoFrame _glass;
     private readonly Image _photo;
     private readonly Border _edge;
     private readonly Grid _clip;
@@ -89,7 +89,7 @@ public sealed class FlightWindow : Window
         Content = _canvas;
 
         _shadow = new DropShadowEffect { Color = Colors.Black, Opacity = 0.24, BlurRadius = 20, ShadowDepth = 5, Direction = 270 };
-        _glass = new Border { Background = Surfaces.Fill(Core.Settings.Current.CardMaterial,Core.Settings.Current.AccentColor,Theme.AppsDark), Effect = _shadow };
+        _glass = new PhotoFrame { Effect = _shadow };
         _photo = new Image { Source = image, Stretch = Stretch.Fill };
         RenderOptions.SetBitmapScalingMode(_photo, BitmapScalingMode.HighQuality);
         _edge = new Border
@@ -177,15 +177,18 @@ public sealed class FlightWindow : Window
         _rotate.CenterX = w / 2; _rotate.CenterY = 0;
         _rotate.Angle = angle;
 
-        _glass.CornerRadius = new CornerRadius(radius);
+        _glass.Progress = Layout.FrameInset>0 ? inset/Layout.FrameInset : 1;
+        _glass.InvalidateVisual();
         _glass.Opacity = chrome;
         _edge.CornerRadius = new CornerRadius(radius);
         _edge.Opacity = chrome;
         _shadow.Opacity = 0.24 * Math.Max(chrome, 0.35);
 
-        _photo.Margin = new Thickness(inset);
+        var margins=PhotoFrames.Insets;
+        double factor=Layout.FrameInset>0?inset/Layout.FrameInset:1;
+        _photo.Margin = new Thickness(margins.Left*factor,margins.Top*factor,margins.Right*factor,margins.Bottom*factor);
         double pr = Math.Max(0, radius - inset);
-        _photo.Clip = new RectangleGeometry(new Rect(0, 0, Math.Max(0, w - 2 * inset), Math.Max(0, h - 2 * inset)), pr, pr);
+        _photo.Clip = new RectangleGeometry(new Rect(0, 0, Math.Max(0, w - (margins.Left+margins.Right)*factor), Math.Max(0, h - (margins.Top+margins.Bottom)*factor)), pr, pr);
 
         // The clip grips the top edge: 26 points tall, 12 of them over the card.
         _clip.Margin = new Thickness(w / 2 - _clip.Width / 2, -(Layout.PinHeight - 12), 0, 0);

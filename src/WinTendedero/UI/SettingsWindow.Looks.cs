@@ -36,6 +36,7 @@ public sealed partial class SettingsWindow
             presets.Children.Add(button);
         }
         panel.Children.Add(presets);
+        panel.Children.Add(BuildFrames());
         var materials=Choice(Surfaces.Materials.Select(key=>(key,Strings.MaterialName(key))).ToArray(),s.CardMaterial,key=>s.CardMaterial=key);
         AutomationProperties.SetAutomationId(materials,"CardMaterial");
         panel.Children.Add(Row(Strings.MaterialLabel,materials));

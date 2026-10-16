@@ -16,8 +16,8 @@ public static class Layout
     public const double PinWidth = 9;
     /// <summary>Distance from the top of the hanging view (the clip) to the card.</summary>
     public const double CardOffsetBelowTop = PinHeight - 12;
-    public static double FrameRadius => Surfaces.Radius;
-    public static double FrameInset => Surfaces.Inset;
+    public static double FrameRadius => PhotoFrames.Radius;
+    public static double FrameInset => PhotoFrames.Insets.Left;
     public static double PhotoMaxHeight => 118 * Scale;
 
     public static int PageSize(double width) => Math.Max(1, (int)((width - 160) / Spacing));
@@ -42,7 +42,9 @@ public static class Layout
     /// <summary>The photo fits inside the card area keeping its proportions.</summary>
     public static Size PhotoSize(double pixelWidth, double pixelHeight)
     {
-        double maxW = CardWidth - 14, maxH = PhotoMaxHeight;
+        var inset=PhotoFrames.Insets;
+        double maxW = Math.Min(CardWidth - 14, CardWidth-inset.Left-inset.Right);
+        double maxH = Math.Min(PhotoMaxHeight,PanelHeight-CardOffsetBelowTop-58-40-inset.Top-inset.Bottom);
         if (pixelWidth <= 0 || pixelHeight <= 0) return new Size(maxW, maxH);
         double scale = Math.Min(maxW / pixelWidth, maxH / pixelHeight);
         return new Size(pixelWidth * scale, pixelHeight * scale);
@@ -52,6 +54,7 @@ public static class Layout
     public static Size CardSize(double pixelWidth, double pixelHeight)
     {
         var p = PhotoSize(pixelWidth, pixelHeight);
-        return new Size(p.Width + FrameInset * 2, p.Height + FrameInset * 2);
+        var inset=PhotoFrames.Insets;
+        return new Size(p.Width + inset.Left+inset.Right, p.Height + inset.Top+inset.Bottom);
     }
 }

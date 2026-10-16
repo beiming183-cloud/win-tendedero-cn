@@ -90,6 +90,10 @@ public sealed class Settings
     /// <summary>wood, metal, mixed, red, blue, green or yellow.</summary>
     public string PegStyle { get; set; } = "metal";
     public string CardMaterial { get; set; } = "glass";
+    public string FrameStyle { get; set; } = "compact";
+    public double? FrameWidth { get; set; }
+    public double? FramePadding { get; set; }
+    public double? FrameRoundness { get; set; }
     public string AccentColor { get; set; } = "#6C91B8";
     public string RopeMaterial { get; set; } = "thread";
     public double Elasticity { get; set; } = 0.65;

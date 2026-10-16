@@ -56,7 +56,7 @@ public sealed class PeggedControl : Canvas
     private readonly TranslateTransform _position = new();
     private readonly ScaleTransform _cardScale = new();
     private readonly Grid _cardHost;
-    private readonly Border _frame;
+    private readonly PhotoFrame _frame;
     private readonly Image _image;
     private readonly Border _cross;
     private readonly Border _pen;
@@ -118,20 +118,20 @@ public sealed class PeggedControl : Canvas
         _cardScale.CenterX = _cardSize.Width / 2;
         _cardScale.CenterY = 0;
 
-        _frame = Glass.Frame(Layout.FrameRadius);
+        _frame = new PhotoFrame();
         _image = new Image
         {
             Source = item.Thumb,
             Stretch = Stretch.Fill,
-            Margin = new Thickness(Layout.FrameInset),
+            Margin = PhotoFrames.Insets,
             SnapsToDevicePixels = true,
         };
         RenderOptions.SetBitmapScalingMode(_image, BitmapScalingMode.HighQuality);
         ApplyPhotoClip();
         var photoEdge = new Border
         {
-            Margin = new Thickness(Layout.FrameInset),
-            CornerRadius = new CornerRadius(Math.Max(0,Layout.FrameRadius - Layout.FrameInset)),
+            Margin = PhotoFrames.Insets,
+            CornerRadius = new CornerRadius(PhotoFrames.PhotoRadius),
             BorderThickness = new Thickness(0.5),
             BorderBrush = Theme.Freeze(new SolidColorBrush(Theme.PhotoEdge)),
             IsHitTestVisible = false,
@@ -688,8 +688,8 @@ public sealed class PeggedControl : Canvas
         {
             dc.PushTransform(new TranslateTransform(pad, pad));
             var frame = new Rect(0, 0, w, h);
-            dc.DrawRoundedRectangle(Surfaces.Fill(Settings.Current.CardMaterial,Settings.Current.AccentColor,Theme.AppsDark), new Pen(Surfaces.Edge, 0.5), frame, Layout.FrameRadius, Layout.FrameRadius);
-            var photo = new Rect(Layout.FrameInset, Layout.FrameInset, w - 2 * Layout.FrameInset, h - 2 * Layout.FrameInset);
+            PhotoFrames.Draw(dc,new Size(w,h));
+            var photo = PhotoFrames.PhotoRect(new Size(w,h));
             double r = Math.Max(0,Layout.FrameRadius - Layout.FrameInset);
             dc.PushClip(new RectangleGeometry(photo, r, r));
             dc.DrawImage(Item.Thumb, photo);
